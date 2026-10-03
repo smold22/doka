@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'" />
+<title>Доска</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div class="brand">
+      <span id="fileName" class="file-name" tabindex="0"
+        title="Дважды кликните, чтобы переименовать">Новая доска</span>
+      <input id="fileRename" class="file-name-input" type="text" hidden
+        maxlength="120" aria-label="Название доски" />
+    </div>
+
+    <div class="topbar-actions">
+      <button class="tb-btn" id="btnNew" data-cmd="new" title="Новая доска (Ctrl+N)">
+        <svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5" class="thin"/></svg>
+        <span>Создать</span>
+      </button>
+      <button class="tb-btn" id="btnOpen" data-cmd="open" title="Открыть (Ctrl+O)">
+        <svg viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
+        <span>Открыть</span>
+      </button>
+      <button class="tb-btn" id="btnSave" data-cmd="save" title="Сохранить (Ctrl+S)">
+        <svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6" class="thin"/></svg>
+        <span>Сохранить</span>
+      </button>
+      <button class="tb-btn" id="btnExport" data-cmd="exportPng" title="Экспорт в PNG (Ctrl+Shift+E)">
+        <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6" class="thin"/><circle cx="9" cy="10" r="1.6" class="thin"/></svg>
+        <span>PNG</span>
+      </button>
+
+      <div class="tb-sep"></div>
+
+      <button class="icon-btn" id="btnUndo" data-cmd="undo" title="Отменить (Ctrl+Z)">
+        <svg viewBox="0 0 24 24"><path d="M9 7H5V3"/><path d="M5.5 7.5A8 8 0 1 1 4 14" class="thin"/></svg>
+      </button>
+      <button class="icon-btn" id="btnRedo" data-cmd="redo" title="Повторить (Ctrl+Y)">
+        <svg viewBox="0 0 24 24"><path d="M15 7h4V3"/><path d="M18.5 7.5A8 8 0 1 0 20 14" class="thin"/></svg>
+      </button>
+
+      <div class="tb-sep"></div>
+
+      <div class="zoom-group">
+        <button class="icon-btn" id="btnZoomOut" data-cmd="zoomOut" title="Уменьшить (Ctrl+-)"><svg viewBox="0 0 24 24"><path d="M6 12h12" class="thin"/></svg></button>
+        <button class="zoom-value" id="btnZoomReset" data-cmd="zoomReset" title="Масштаб 100% (Ctrl+0)">100%</button>
+        <button class="icon-btn" id="btnZoomIn" data-cmd="zoomIn" title="Увеличить (Ctrl++)"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12" class="thin"/></svg></button>
+        <button class="icon-btn" id="btnZoomFit" data-cmd="zoomFit" title="Вписать в экран (Ctrl+1)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" class="thin"/></svg></button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <button class="icon-btn" id="btnGrid" data-cmd="toggleGrid" title="Сетка (Ctrl+Shift+G)"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z" class="thin"/><path d="M4 10h16M4 15h16M10 4v16M15 4v16" class="thin"/></svg></button>
+      <button class="icon-btn" id="btnCells" data-cmd="toggleCells" title="Клетка (Ctrl+Shift+C)"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="1.5" class="thin"/><path d="M12 3.5v17M3.5 12h17" class="thin"/></svg></button>
+      <button class="icon-btn" id="btnHelp" data-cmd="showShortcuts" title="Горячие клавиши (F1)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" class="thin"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .9-1 1.7v.4" class="thin"/><circle cx="12" cy="16.8" r="1.1" class="fill"/></svg></button>
+    </div>
+  </header>
+
+  <div id="workspace">
+    <nav id="toolrail" aria-label="Инструменты">
+<button class="tool" data-tool="pen" data-tip="Перо (P)" aria-label="Перо">
+          <svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.94 14.036c-.233.624-.43 1.2-.606 1.783.96-.697 2.101-1.139 3.418-1.304 2.513-.314 4.746-1.973 5.876-4.058l-1.456-1.455 1.413-1.415 1-1.001c.43-.43.915-1.224 1.428-2.368-5.593.867-9.018 4.292-11.074 9.818zM17 9.001L18 10c-1 3-4 6-8 6.5-2.669.334-4.336 2.167-5.002 5.5H3C4 16 6 2 21 2c-1 2.997-1.998 4.996-2.997 5.997L17 9.001z"/></svg>
+        </button>
+      <button class="tool" data-tool="highlighter" data-tip="Маркер (H)" aria-label="Маркер">
+        <svg class="solid" viewBox="0 0 80 80" aria-hidden="true"><path d="M72.787 15.686 62.048 6.154a4.35 4.35 0 0 0-6.17.083L21.953 38.014h-.001l-.01.01a1 1 0 0 0-.287.34 1.6 1.6 0 0 0-.066.119 1.6 1.6 0 0 0-.142.288l-.027.056-5.44 13.93L6.18 64.3a1.63 1.63 0 0 0-.462 1.734 1.7 1.7 0 0 0 1.113 1.407l15.82 7.371c.29.166.578.227.863.227a2.5 2.5 0 0 0 1.497-.672l7.188-8.099 12.987-6.326c.018-.009.032-.023.05-.032a1.5 1.5 0 0 0 .276-.18c.034-.026.072-.047.104-.075a2.1 2.1 0 0 0 .305-.326L74.846 19.906c.722-2.639.444-5.277-2.059-4.22zM31.273 62.221l-10.507-9.326 3.452-9.932 16.508 14.652zM22.987 70.558 10.952 64.95l7.653-8.623 9.517 8.447zM70.213 19.454 43.977 55.153 26.278 39.443 58.612 9.156c.222-.206.557-.209.78-.01l10.739 9.531c.282.19.317.524.083.777z"/></svg>
+      </button>
+      <button class="tool" data-tool="fill" data-tip="Заливка (B)" aria-label="Заливка">
+        <svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.56 8.94 7.62 0 6.21 1.41l2.38 2.38-5.15 5.15c-.59.59-.59 1.54 0 2.12l5.5 5.5c.29.29.68.44 1.06.44s.77-.15 1.06-.44l5.5-5.5c.59-.58.59-1.53 0-2.12zM5.21 10 10 5.21 14.79 10H5.21zM19 11.5s-2 2.17-2 3.5c0 1.1.9 2 2 2s2-.9 2-2c0-1.33-2-3.5-2-3.5z"/></svg>
+      </button>
+
+      <div class="tool-sep"></div>
+
+      <button class="tool" data-tool="text" data-tip="Текст (T)" aria-label="Текст">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.9 16.6 9.2 3.4h1.6l5.3 13.2"/><path d="M6.2 12.3h7.6"/></svg>
+      </button>
+      <button class="tool" data-tool="line" data-tip="Линия (L)" aria-label="Линия">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.4 16.6 16.6 3.4"/></svg>
+      </button>
+      <button class="tool" data-tool="arrow" data-tip="Стрелка (A)" aria-label="Стрелка">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.4 16.6 16.6 3.4"/><path d="M9.6 3.4h7v7"/></svg>
+      </button>
+      <button class="tool" data-tool="rect" data-tip="Прямоугольник (R) · ПКМ — другие фигуры" aria-label="Прямоугольник">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.4 5.4h13.2v9.2H3.4z"/></svg>
+      </button>
+      <button class="tool" data-tool="ellipse" data-tip="Круг (O) · ПКМ — другие фигуры" aria-label="Круг">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.4 10a6.6 6.6 0 1 0 13.2 0 6.6 6.6 0 1 0-13.2 0z"/></svg>
+      </button>
+      <button class="tool" data-tool="triangle" data-tip="Треугольник (U) · ПКМ — другие фигуры" aria-label="Треугольник">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.4 3.4v13.2h13.2z"/></svg>
+      </button>
+
+      <div class="tool-sep"></div>
+
+      <button class="tool" data-tool="solid" data-tip="Объёмная фигура (C) · ПКМ — другие фигуры" aria-label="Объёмная фигура">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.6 17 6.5v8.3L10 18.7 3 14.8V6.5zM3 6.5l7 3.9 7-3.9M10 10.4v8.3"/></svg>
+      </button>
+    </nav>
+
+    <div id="stage">
+      <canvas id="board"></canvas>
+      <div id="overlay"></div>
+      <div id="hud">
+        <div id="hudTitle">Пустая доска</div>
+        <div id="hudSub">
+          Выберите инструмент слева и начните рисовать.<br />
+          Колёсико — масштаб, Shift + колёсико — сдвиг вбок, пробел или средняя кнопка мыши — перемещение холста.
+        </div>
+      </div>
+      <div id="marquee-hint"></div>
+
+      <nav id="toolbar-bottom" aria-label="Нижняя панель инструментов">
+        <button class="tool" data-tool="select" data-tip="Выделение (V)" aria-label="Выделение">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.2 3.4 15.4 9.9 11 10.9 8.9 15.4z"/></svg>
+        </button>
+        <button class="tool" data-tool="eraser" data-tip="Ластик (E)" aria-label="Ластик">
+          <svg class="solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M8.1 14l6.4-7.2c.6-.7.6-1.8-.1-2.5l-2.7-2.7c-.3-.4-.8-.6-1.3-.6H8.6c-.5 0-1 .2-1.4.6L.5 8.6c-.6.7-.6 1.9.1 2.5l2.7 2.7c.3.4.8.6 1.3.6H15v-1H7.1zM6.8 13.9s0-.1 0 0L4.1 11.2c-.4-.4-.4-.9 0-1.3l3.4-3.9h-1l-3 3.3c-.6.7-.6 1.7.1 2.4l2.3 2.3H4.6c-.2 0-.4-.1-.6-.2l-2.8-2.8c-.3-.3-.3-.8 0-1.1l3.5-3.9h1.8l3.5-4h1l-3.5 4 3.1 3.7-3.5 4c-.1.1-.2.1-.3.2z"/></svg>
+        </button>
+
+        <div class="tool-sep-v"></div>
+
+        <button class="tool" data-tool="ruler" data-tip="Линейка (M)" aria-label="Линейка">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1.7" y="6.1" width="16.6" height="7.8" rx="1.6"/><path d="M5 6.1v3.4M8.2 6.1v2.2M11.4 6.1v3.4M14.6 6.1v2.2"/></svg>
+        </button>
+        <button class="tool" data-tool="protractor" data-tip="Транспортир (G)" aria-label="Транспортир">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.4 15.4h15.2"/><path d="M2.4 15.4a7.6 7.6 0 0 1 15.2 0"/><path d="M10 15.4 14.4 10.1"/><circle cx="10" cy="15.4" r="1"/></svg>
+        </button>
+
+        <div class="tool-sep-v"></div>
+
+        <button class="tool" data-tool="pan" data-tip="Рука — перетаскивать холст (F)" aria-label="Рука">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.2 9.6V5.2a1.1 1.1 0 0 1 2.2 0v3.7"/><path d="M9.4 8.9V4.4a1.1 1.1 0 0 1 2.2 0v4.5"/><path d="M11.6 9V5.9a1.1 1.1 0 0 1 2.2 0v4.4"/><path d="M13.8 10.2V8.4a1.1 1.1 0 0 1 2.2 0v3.9c0 2.4-1.9 4.3-4.3 4.3h-1.2c-1.4 0-2.6-.7-3.4-1.8l-2.1-3a1.1 1.1 0 0 1 1.7-1.4l1.5 1.7V9.4"/></svg>
+        </button>
+        <button class="tool" data-cmd="insertImage" data-tip="Вставить картинку (Ctrl+Shift+I)" aria-label="Вставить картинку">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.6" y="4.2" width="14.8" height="11.6" rx="1.6"/><path d="M3.2 13.4 7.6 9.2l2.4 2.3 2-1.9 4.6 3.8"/><circle cx="13.6" cy="7.8" r="1.2"/></svg>
+        </button>
+
+        <div class="tool-sep-v"></div>
+
+        <button class="tool pen-pick" data-pen="#000000" data-tip="Чёрная ручка" aria-label="Чёрная ручка">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
+        </button>
+        <button class="tool pen-pick" data-pen="#0000FF" data-tip="Синяя ручка" aria-label="Синяя ручка">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
+        </button>
+        <button class="tool pen-pick" data-pen="#FF0000" data-tip="Красная ручка" aria-label="Красная ручка">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
+        </button>
+      </nav>
+    </div>
+
+    <aside id="inspector">
+      <div class="insp-block" data-for="pen text ruler protractor fill rect ellipse triangle solid line arrow">
+        <div class="insp-title" id="inkTitle">Цвет чернил</div>
+        <div class="swatches" id="swatchesInk"></div>
+      </div>
+
+      <div class="insp-block" data-for="highlighter">
+        <div class="insp-title">Цвет маркера</div>
+        <div class="swatches" id="swatchesHi"></div>
+      </div>
+
+      
+
+      <div class="insp-block" data-for="pen highlighter rect ellipse triangle solid line arrow ruler protractor">
+        <div class="insp-title">Толщина</div>
+        <div class="thickness" id="thickness">
+          <button class="th th-dot" data-w="2"></button>
+          <button class="th th-dot" data-w="4"></button>
+          <button class="th th-dot" data-w="8"></button>
+          <button class="th th-dot" data-w="14"></button>
+          <button class="th th-dot" data-w="24"></button>
+        </div>
+      </div>
+
+      <div class="insp-block" data-for="protractor">
+        <div class="insp-title">Обучение</div>
+        <div class="mini-actions">
+          <button id="btnProtractorLearn">Пользование транспортиром</button>
+        </div>
+        <p class="insp-hint">Транспортир остаётся на доске — по нему можно рисовать пером и маркером. Alt + перетаскивание — сдвинуть, синяя ручка — повернуть.</p>
+      </div>
+
+      <div class="insp-block" data-for="rect ellipse triangle fill solid">
+        <div class="insp-title">Заливка</div>
+        <div class="fill-row">
+          <button class="fill-btn" data-fill="none" title="Без заливки"></button>
+          <button class="fill-btn" data-fill="tint" title="Полупрозрачная"></button>
+          <button class="fill-btn" data-fill="solid" title="Сплошная"></button>
+        </div>
+        <p class="insp-hint">Цвет и режим заливки замкнутых фигур. Инструмент «Заливка» красит фигуру по клику.</p>
+      </div>
+
+      <div class="insp-block" data-for="text">
+        <div class="insp-title">Размер текста</div>
+        <div class="stepper">
+          <button data-textsize="-2">A−</button>
+          <span id="textSizeValue">28</span>
+          <button data-textsize="2">A+</button>
+        </div>
+      </div>
+
+      <div class="insp-block" data-for="ruler protractor">
+        <div class="insp-title">Прямая по инструменту</div>
+        <p class="insp-hint">Тяните по доске — получится прямая по линейке. Линейку можно перетаскивать, а вращать — за синюю ручку.</p>
+      </div>
+
+      <div class="insp-block" data-for="eraser">
+        <div class="insp-title">Ластик</div>
+        <div class="eraser-size">
+          <input type="range" id="eraserSlider" min="8" max="80" step="2" value="24" aria-label="Размер круга ластика">
+          <span id="eraserSizeValue">24</span>
+        </div>
+        <div class="mini-actions">
+          <button id="btnAdaptiveEraser" data-cmd="toggleAdaptiveEraser">Расти на бегу</button>
+          <button data-cmd="clearBoard">Очистить доску</button>
+        </div>
+        <p class="insp-hint">Круг — рабочая область ластика: контур режется ровно по нему, внутри круга исчезает, снаружи остаётся. На быстром движении ластик сам становится шире — так меньше проходов. Отключите, если нужна точность.</p>
+      </div>
+
+      <div class="insp-block" data-for="select">
+        <div class="insp-title">Выделение</div>
+        <div class="mini-actions">
+          <button data-cmd="selectAll">Выделить всё</button>
+          <button data-cmd="duplicate">Дублировать</button>
+          <button data-cmd="deleteSelection">Удалить</button>
+        </div>
+        <div class="insp-title">Выравнивание</div>
+        <div class="align-grid">
+          <button data-cmd="alignLeft" title="По левому краю"><svg viewBox="0 0 20 20"><path d="M3.4 3.4v13.2M6.6 6.4h7v3.2h-7zM6.6 12.4h4.4v3.2H6.6z"/></svg></button>
+          <button data-cmd="alignCenterH" title="По центру"><svg viewBox="0 0 20 20"><path d="M10 3.4v13.2M6.6 6.4h6.8v3.2H6.6zM7.8 12.4h4.4v3.2H7.8z"/></svg></button>
+          <button data-cmd="alignRight" title="По правому краю"><svg viewBox="0 0 20 20"><path d="M16.6 3.4v13.2M6.6 6.4h10v3.2h-10zM9 12.4h7.6v3.2H9z"/></svg></button>
+          <button data-cmd="alignTop" title="По верхнему краю"><svg viewBox="0 0 20 20"><path d="M3.4 3.4h13.2M6.4 6.6v7h3.2v-7zM12.4 6.6v4.4h3.2V6.6z"/></svg></button>
+          <button data-cmd="alignCenterV" title="По середине"><svg viewBox="0 0 20 20"><path d="M3.4 10h13.2M6.6 6.4h3.2v6.8H6.6zM12.6 7.8h3.2v4.4h-3.2z"/></svg></button>
+          <button data-cmd="alignBottom" title="По нижнему краю"><svg viewBox="0 0 20 20"><path d="M3.4 16.6h13.2M6.4 6.4v7h3.2v-7zM12.4 9.2v4.4h3.2V9.2z"/></svg></button>
+        </div>
+        <div class="insp-title">Распределение</div>
+        <div class="align-grid">
+          <button data-cmd="distributeH" title="Равные промежутки по горизонтали"><svg viewBox="0 0 20 20"><path d="M3.4 4.4v11.2M16.6 4.4v11.2M8.4 7.4h3.2v5.2H8.4z"/></svg></button>
+          <button data-cmd="distributeV" title="Равные промежутки по вертикали"><svg viewBox="0 0 20 20"><path d="M4.4 3.4h11.2M4.4 16.6h11.2M7.4 8.4h5.2v3.2H7.4z"/></svg></button>
+        </div>
+        <p class="insp-hint">Клик — выбрать, Shift+клик — добавить, рамка — область выделения. Заблокированный объект выделяется, но не двигается и не стирается.</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer id="statusbar">
+    <span id="stTool">Перо</span>
+    <span class="st-sep"></span>
+    <span id="stCoords">0, 0</span>
+    <span class="st-sep"></span>
+    <span id="stCount">0 объектов</span>
+    <span class="st-grow"></span>
+    <span id="stHint">Колёсико — масштаб · Пробел + перетаскивание — холст</span>
+  </footer>
+
+  <div id="selectionbar" hidden>
+    <button data-sel="front" title="На передний план"><svg viewBox="0 0 24 24"><rect x="7" y="4" width="13" height="13" rx="1.5" class="thin"/><path d="M4 16V7.5A1.5 1.5 0 0 1 5.5 6H14" class="thin"/></svg></button>
+    <button data-sel="back" title="На задний план"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="13" height="13" rx="1.5" class="thin"/><path d="M20 16V7.5A1.5 1.5 0 0 0 18.5 6H10" class="thin"/></svg></button>
+    <span class="sb-sep"></span>
+    <button data-sel="dup" title="Дублировать (Ctrl+D)"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2" class="thin"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" class="thin"/></svg></button>
+      <button data-sel="lock" title="Заблокировать (Ctrl+Shift+L)"><svg viewBox="0 0 24 24"><rect x="5.5" y="10.5" width="13" height="9.5" rx="1.6" class="thin"/><path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7" class="thin"/></svg></button>
+    <button data-sel="delete" title="Удалить (Del)"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" class="thin"/></svg></button>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <!-- Меню выбора фигуры: правый клик по кнопке «Прямоугольник» -->
+  <div id="shapeMenu" class="shape-menu" hidden role="menu" aria-label="Выбор фигуры"></div>
+
+  <div id="shortcuts" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Горячие клавиши</h2>
+        <button id="closeShortcuts" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body cols">
+        <section>
+          <h3>Инструменты</h3>
+          <dl>
+            <dt>V</dt><dd>Выделение</dd>
+            <dt>P</dt><dd>Перо</dd>
+            <dt>H</dt><dd>Маркер</dd>
+            <dt>E</dt><dd>Ластик</dd>
+            <dt>B</dt><dd>Заливка</dd>
+            <dt>T</dt><dd>Текст</dd>
+            <dt>L</dt><dd>Линия</dd>
+            <dt>A</dt><dd>Стрелка</dd>
+            <dt>R</dt><dd>Прямоугольник</dd>
+            <dt>ПКМ по кнопке</dt><dd>Квадрат, ромб, параллелограмм, трапеции</dd>
+            <dt>O</dt><dd>Круг</dd>
+            <dt>U</dt><dd>Треугольник</dd>
+            <dt>ПКМ по кнопке</dt><dd>Круг или овал, треугольники</dd>
+            <dt>C</dt><dd>Объёмная фигура</dd>
+            <dt>ПКМ по кнопке</dt><dd>Параллелепипед, пирамиды, призмы, сфера</dd>
+            <dt>M</dt><dd>Линейка</dd>
+            <dt>G</dt><dd>Транспортир</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Холст</h3>
+          <dl>
+            <dt>Пробел + мышь</dt><dd>Перемещение холста</dd>
+            <dt>Средняя кнопка</dt><dd>Перемещение холста</dd>
+            <dt>Колёсико</dt><dd>Масштаб</dd>
+            <dt>Shift + колёсико</dt><dd>Сдвиг холста вбок</dd>
+            <dt>Ctrl + колёсико</dt><dd>Масштаб (как было)</dd>
+            <dt>Колёсико</dt><dd>Прокрутка</dd>
+            <dt>Ctrl + 0</dt><dd>Масштаб 100%</dd>
+            <dt>Ctrl + 1</dt><dd>Вписать в экран</dd>
+            <dt>Ctrl + D</dt><dd>Дублировать</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Правка</h3>
+          <dl>
+            <dt>Ctrl + Z</dt><dd>Отменить</dd>
+            <dt>Ctrl + Y</dt><dd>Повторить</dd>
+            <dt>Ctrl + C / V / X</dt><dd>Копировать / вставить / вырезать</dd>
+            <dt>Ctrl + V</dt><dd>Вставить текст, картинку или объекты доски</dd>
+            <dt>Del</dt><dd>Удалить выделенное</dd>
+            <dt>Ctrl + A</dt><dd>Выделить всё</dd>
+            <dt>Ctrl + D</dt><dd>Дублировать</dd>
+            <dt>Ctrl + Shift + L</dt><dd>Заблокировать выделенное</dd>
+            <dt>Esc</dt><dd>Снять выделение</dd>
+            <dt>F2</dt><dd>Правка текста</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Файл</h3>
+          <dl>
+            <dt>Ctrl + N</dt><dd>Новая доска</dd>
+            <dt>Ctrl + O</dt><dd>Открыть</dd>
+            <dt>Ctrl + S</dt><dd>Сохранить</dd>
+            <dt>Ctrl + Shift + S</dt><dd>Сохранить как</dd>
+            <dt>Ctrl + Shift + E</dt><dd>Экспорт в PNG</dd>
+            <dt>Ctrl + Shift + G</dt><dd>Сетка</dd>
+            <dt>Ctrl + Shift + C</dt><dd>Клетка</dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/geometry.js"></script>
+<script src="js/store.js"></script>
+<script src="js/paint.js"></script>
+ <script src="js/hit.js"></script>
+ <script src="js/region.js"></script>
+ <script src="js/persist.js"></script>
+<script src="js/interactions.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

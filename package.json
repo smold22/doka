@@ -1,0 +1,48 @@
+{
+  "name": "doka",
+  "productName": "Доска",
+  "version": "3.0.0",
+  "description": "Доска — бесконечная доска для рисования",
+  "main": "main.js",
+  "author": "Smold2",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "electron test/smoke.js",
+    "icon": "node tools/make-icon-from-png.js",
+    "dist": "electron-builder --dir --win --x64 && node tools/postbuild.js && electron-builder --win nsis --prepackaged dist/win-unpacked",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.doka.app",
+    "productName": "Доска",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "artifactName": "Doka-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Доска"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
