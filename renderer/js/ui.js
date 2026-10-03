@@ -558,7 +558,9 @@
 
     function updateCoords(world) {
       if (!world) return;
-      el.stCoords.textContent = `${Math.round(world.x)}, ${Math.round(world.y)}`;
+      const text = `${Math.round(world.x)}, ${Math.round(world.y)}`;
+      /* та же запись при каждом движении мыши — лишняя работа для вёрстки */
+      if (el.stCoords.textContent !== text) el.stCoords.textContent = text;
     }
 
     function setFileName(name, dirty) {

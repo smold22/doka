@@ -1431,36 +1431,53 @@
       }
     }
 
+    /* курсор пишем только при смене значения: запись того же значения
+       на каждом движении мыши заставляет браузер пересчитывать стили */
+    function setCanvasCursor(value) {
+      if (canvas.style.cursor !== value) canvas.style.cursor = value;
+    }
+
     function onPointerMove(e) {
       const screen = pointerPos(e);
       lastPointer = screen;
       const world = G.toWorld(screen, state.view);
       app.onPointerMove(world, screen);
 
+      /* Перерисовываем только когда что-то действительно изменилось:
+         раньше каждыйmousemove пускал полный кадр, и на большом холсте
+         (во весь экран) основной поток не справлялся — курсор дёргался. */
+      let repaint = false;
+
       if (state.tool === 'eraser') {
         state.eraser = screen;
         syncEraserRadius();
+        repaint = true; /* круг ластика следует за курсором */
       }
 
       if (!drag) {
         if (state.tool === 'select') {
           const handle = hitHandleAt(screen);
           const over = handle || Hit.hitTest(store, world, 6 / state.view.scale);
-          state.hoveredId = over && over.id ? over.id : null;
-          canvas.style.cursor = handle
+          const nextHover = over && over.id ? over.id : null;
+          setCanvasCursor(handle
             ? (handle === 'p1' || handle === 'p2' ? 'move' : 'nwse-resize')
-            : over ? 'move' : 'default';
+            : over ? 'move' : 'default');
+          if (nextHover !== state.hoveredId) {
+            state.hoveredId = nextHover;
+            repaint = true;
+          }
         } else if (state.tool === 'ruler' || state.tool === 'protractor') {
           const part = G.instrumentHit(state.tool, currentInstrument(state.tool), screen);
-          canvas.style.cursor = part === 'rotate' ? 'pointer' : part === 'body' ? 'grab' : 'crosshair';
+          setCanvasCursor(part === 'rotate' ? 'pointer' : part === 'body' ? 'grab' : 'crosshair');
         } else if (e.altKey && state.protractor.visible && state.tool !== 'protractor') {
           /* транспортир виден под пером и маркером: подсказываем, что Alt его возьмёт */
           const part = G.instrumentHit('protractor', state.protractor, screen);
-          canvas.style.cursor = part === 'rotate' ? 'pointer' : part === 'body' ? 'grab' : 'default';
-        } else {
+          setCanvasCursor(part === 'rotate' ? 'pointer' : part === 'body' ? 'grab' : 'default');
+        } else if (state.hoveredId !== null) {
           state.hoveredId = null;
+          repaint = true;
         }
-        app.requestRender();
+        if (repaint) app.requestRender();
         return;
       }
 

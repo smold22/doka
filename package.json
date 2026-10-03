@@ -1,7 +1,7 @@
 {
   "name": "doka",
   "productName": "Доска",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "Доска — бесконечная доска для рисования",
   "main": "main.js",
   "author": "Smold2",
@@ -14,7 +14,7 @@
     "pack": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
+    "electron": "^44.5.1",
     "electron-builder": "^25.1.8"
   },
   "build": {

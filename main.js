@@ -12,6 +12,13 @@ const Update = require('./lib/update');
 
 const isMac = process.platform === 'darwin';
 
+/* Тест борьбы с мерцанием на RTX 5050: отключаем DirectComposition
+   (путь вывода кадров в полном экране) и ускорение Canvas2D, оставляя
+   базовый GPU-композитинг. Если не поможет — убираем оба и пробуем
+   системные причины (HAGS/MPO) либо программный рендеринг. */
+app.commandLine.appendSwitch('disable-direct-composition');
+app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
+
 let mainWindow = null;
 let currentFile = null;
 /* путь к установщику, который надо запустить после закрытия окна
