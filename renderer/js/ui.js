@@ -214,7 +214,6 @@
       btnRedo: document.getElementById('btnRedo'),
       btnGrid: document.getElementById('btnGrid'),
       btnCells: document.getElementById('btnCells'),
-      btnAdaptiveEraser: document.getElementById('btnAdaptiveEraser'),
       eraserSlider: document.getElementById('eraserSlider'),
       eraserSizeValue: document.getElementById('eraserSizeValue'),
       protractorLearn: document.getElementById('btnProtractorLearn'),
@@ -229,6 +228,17 @@
       hud: document.getElementById('hud'),
       toast: document.getElementById('toast'),
       shortcuts: document.getElementById('shortcuts'),
+      about: document.getElementById('about'),
+      aboutVersion: document.getElementById('aboutVersion'),
+      aboutAuthor: document.getElementById('aboutAuthor'),
+      aboutEngine: document.getElementById('aboutEngine'),
+      updateStatus: document.getElementById('updateStatus'),
+      updateProgress: document.getElementById('updateProgress'),
+      updateBar: document.getElementById('updateBar'),
+      btnCheckUpdate: document.getElementById('btnCheckUpdate'),
+      btnDownloadUpdate: document.getElementById('btnDownloadUpdate'),
+      btnInstallUpdate: document.getElementById('btnInstallUpdate'),
+      btnReleases: document.getElementById('btnReleases'),
     };
 
     let toastTimer = null;
@@ -549,11 +559,6 @@ input.value = current;
       el.btnCells.classList.toggle('active', !!active);
     }
 
-    /* Кнопка «Расти на бегу» в настройках ластика */
-    function setAdaptiveEraser(active) {
-      el.btnAdaptiveEraser.classList.toggle('active', !!active);
-    }
-
     /* ---------- панель выделения ---------- */
 
     function updateSelectionBar() {
@@ -598,15 +603,19 @@ input.value = current;
       el.shortcuts.hidden = show === false;
     }
 
+    function showAbout(show) {
+      el.about.hidden = show === false;
+    }
+
     return {
       el,
       INK_COLORS, TOOL_LABELS,
       buildPalettes, setTool, updateZoom, updateHistory, updateCounts,
-      updateCoords, setFileName, startRename, setGridActive, setCellsActive, setAdaptiveEraser, updateSelectionBar,
+      updateCoords, setFileName, startRename, setGridActive, setCellsActive, updateSelectionBar,
       openShapeMenu, closeShapeMenu, syncShapeVariant, VARIANT_MENUS,
       ELLIPSE_VARIANTS, ellipseVariant, TRIANGLE_VARIANTS, triangleVariant,
       SOLID_VARIANTS, solidVariant,
-      toast, showShortcuts, syncSwatches, markPenColor, syncThickness, syncFill, syncTextSize,
+      toast, showShortcuts, showAbout, syncSwatches, markPenColor, syncThickness, syncFill, syncTextSize,
       syncEraser,
       syncProtractorLearn,
     };

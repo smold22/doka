@@ -6,6 +6,9 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
+const os = require('node:os');
+const fsProm = require('node:fs/promises');
+const Update = require('../lib/update');
 
 /* заглушки IPC, чтобы тест не зависел от main.js */
 ipcMain.handle('app:dirty', () => true);
@@ -23,6 +26,37 @@ ipcMain.handle('clipboard:read', () => ({
 }));
 ipcMain.handle('app:toast', () => true);
 ipcMain.handle('image:open', () => ({ ok: false, canceled: true }));
+/* заглушки «О программе» и обновлений: сеть в тестах не ходим */
+ipcMain.handle('app:info', () => ({
+  version: '0.0.0-test',
+  author: 'Тест',
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+}));
+ipcMain.handle('update:check', () => ({
+  phase: 'latest',
+  current: '0.0.0-test',
+  latest: null,
+  assetName: null,
+  assetSize: null,
+  received: 0,
+  total: 0,
+  file: null,
+  error: null,
+}));
+ipcMain.handle('update:download', () => ({
+  phase: 'error',
+  current: '0.0.0-test',
+  latest: null,
+  assetName: null,
+  assetSize: null,
+  received: 0,
+  total: 0,
+  file: null,
+  error: 'Скачивание не удалось: тест',
+}));
+ipcMain.handle('update:install', () => ({ ok: false, error: 'Тест: установка недоступна' }));
+ipcMain.handle('update:openPage', () => true);
 
 const results = [];
 let failed = 0;
@@ -41,7 +75,74 @@ const HARD_TIMEOUT = setTimeout(() => {
   app.exit(1);
 }, 60000);
 
+/* логика обновлений: версии, поиск установщика, загрузка — всё без сети */
+async function runUpdateTests() {
+  report('update: 3.0.1 новее 3.0.0', Update.isNewer('3.0.1', '3.0.0') === true);
+  report('update: одинаковые версии не новее', Update.isNewer('3.0.0', '3.0.0') === false);
+  report('update: 10.0.0 новее 9.9.9 (числовой порядок)', Update.isNewer('10.0.0', '9.9.9') === true);
+  report('update: префикс v в теге учитывается', Update.isNewer('v3.1.0', '3.0.0') === true);
+  report('update: старая версия не новее', Update.isNewer('2.9.0', '3.0.0') === false);
+
+  const asset = Update.pickAsset([
+    { name: 'latest.yml', browser_download_url: 'u1' },
+    { name: 'Doka-Setup-3.1.0.exe', browser_download_url: 'u2', size: 42 },
+  ]);
+  report('update: установщик находится среди ассетов', !!asset && asset.browser_download_url === 'u2');
+  report('update: без установщика в релизе — null', Update.pickAsset([{ name: 'latest.yml' }]) === null);
+
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
+  const fresh = await Update.checkLatest('3.0.0', {
+    fetchImpl: async () => json({
+      tag_name: 'v9.9.9',
+      assets: [{ name: 'Doka-Setup-9.9.9.exe', browser_download_url: 'http://x/i.exe', size: 123 }],
+    }),
+  });
+  report('update: checkLatest видит новую версию', fresh.hasUpdate === true && fresh.latest === '9.9.9');
+  report('update: checkLatest отдаёт установщик', fresh.assetName === 'Doka-Setup-9.9.9.exe' && fresh.assetSize === 123);
+
+  const old = await Update.checkLatest('3.0.0', { fetchImpl: async () => json({ tag_name: 'v2.0.0', assets: [] }) });
+  report('update: старый релиз не считается обновлением', old.hasUpdate === false);
+
+  let httpErr = false;
+  try { await Update.checkLatest('3.0.0', { fetchImpl: async () => json({}, 500) }); } catch (err) { httpErr = true; }
+  report('update: ошибка GitHub не замалчивается', httpErr);
+
+  /* duck-типы вместо Response: точный контроль над content-length и телом */
+  const payload = Buffer.alloc(2048, 7);
+  const okRes = () => ({
+    ok: true,
+    headers: { get: (h) => (h === 'content-length' ? String(payload.length) : null) },
+    body: (async function* () { yield payload; })(),
+  });
+  const dest = path.join(os.tmpdir(), `doka-update-test-${process.pid}.exe`);
+  let progressCalls = 0;
+  const got = await Update.download('http://x/i.exe', dest, {
+    fetchImpl: async () => okRes(),
+    onProgress: () => { progressCalls++; },
+  });
+  const written = await fsProm.stat(dest).catch(() => null);
+  await fsProm.unlink(dest).catch(() => {});
+  report('update: загрузка пишет файл целиком', got.received === payload.length && !!written && written.size === payload.length);
+  report('update: загрузка сообщает прогресс', progressCalls > 0);
+
+  const dest2 = path.join(os.tmpdir(), `doka-update-test-broken-${process.pid}.exe`);
+  let brokeErr = false;
+  try {
+    await Update.download('http://x/i.exe', dest2, {
+      fetchImpl: async () => ({
+        ok: true,
+        headers: { get: (h) => (h === 'content-length' ? String(payload.length + 100) : null) },
+        body: (async function* () { yield payload; })(),
+      }),
+    });
+  } catch (err) { brokeErr = true; }
+  const leftover = await fsProm.stat(dest2).then(() => true, () => false);
+  report('update: неполная загрузка откатывается', brokeErr && !leftover);
+}
+
 async function run() {
+  await runUpdateTests();
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -837,14 +938,14 @@ t('иконка пера показывает выбранный цвет чер
     return !!b && b.textContent.trim() === 'Очистить доску' &&
       block && block.dataset.for === 'eraser';
   });
-  t('у ластика слайдер круга и переключатель адаптивного режима', () => {
+  t('у ластика слайдер круга без режима роста', () => {
     const block = document.querySelector('[data-cmd="clearBoard"]').closest('.insp-block');
     const toggle = block.querySelector('[data-cmd="toggleAdaptiveEraser"]');
     const slider = block.querySelector('#eraserSlider');
     return !!slider && slider.type === 'range' &&
       block.querySelectorAll('.th').length === 0 &&
-      !!toggle &&
-      block.querySelectorAll('.mini-actions button').length === 2;
+      toggle === null && !document.getElementById('btnAdaptiveEraser') &&
+      block.querySelectorAll('.mini-actions button').length === 1;
   });
   t('в блоке ластика нет палитр и прочих настроек', () => {
     const block = document.querySelector('[data-cmd="clearBoard"]').closest('.insp-block');
@@ -874,11 +975,12 @@ t('иконка пера показывает выбранный цвет чер
       : `width=${st.eraserWidth} shown=${shown} saved=${saved}`;
   });
   t('круг ластика растёт вместе со слайдером', () => {
-    /* радиус на доске — половина диаметра из слайдера в масштабе вида */
+    /* радиус — экранные пиксели: половина диаметра из слайдера,
+       без привязки к масштабу холста */
     const sp = toScreen({ x: 0, y: 0 });
     fire('pointermove', sp.x, sp.y);
-    const want = (st.eraserWidth / 2) * st.view.scale;
-    return Math.abs(st.eraserRadius - want) < 1e-9 && st.eraserRadius > (24 / 2) * st.view.scale
+    const want = st.eraserWidth / 2;
+    return Math.abs(st.eraserRadius - want) < 1e-9 && st.eraserRadius > 24 / 2
       ? true : `radius=${st.eraserRadius} want=${want}`;
   });
   t('слайдер ластика не выходит за пределы', () => {
@@ -888,7 +990,7 @@ t('иконка пера показывает выбранный цвет чер
     const small = st.eraserWidth;
     const slider = document.getElementById('eraserSlider');
     const shown = document.getElementById('eraserSizeValue').textContent;
-    return big === 80 && small === 8 && slider.value === '8' && shown === '8'
+    return big === 160 && small === 8 && slider.value === '8' && shown === '8'
       ? true : `big=${big} small=${small} shown=${shown}`;
   });
   t('курсор ластика — полупрозрачный круг без крестика', () => {
@@ -898,6 +1000,54 @@ t('иконка пера показывает выбранный цвет чер
     const pen = getComputedStyle(board).cursor;
     itc.setTool('eraser');
     return eraser === 'none' && pen === 'crosshair' ? true : `eraser=${eraser} pen=${pen}`;
+  });
+  t('круг ластика не привязан к масштабу холста', () => {
+    /* экранный диаметр из слайдера постоянен при любом зуме: zoom-out
+       не прячет круг, а pointermove после зума не должен вернуть ×scale */
+    app.setEraserWidth(40);
+    const scale0 = st.view.scale;
+    itc.zoomAt({ x: 320, y: 240 }, 2);
+    const h = toScreen({ x: 0, y: 0 });
+    fire('pointermove', h.x, h.y);
+    const atZoom = st.view.scale === scale0 * 2
+      && st.eraserRadius === st.eraserWidth / 2;
+    itc.zoomAt({ x: 320, y: 240 }, scale0 / st.view.scale);
+    const restored = Math.abs(st.view.scale - scale0) < 1e-9
+      && st.eraserRadius === st.eraserWidth / 2;
+    return atZoom && restored ? true
+      : `scale=${st.view.scale} radius=${st.eraserRadius} want=${st.eraserWidth / 2}`;
+  });
+  t('при зуме ластик стирает ровно по нарисованному кругу', () => {
+    /* 20 экранных пикселей при scale=2 → радиус 10 единиц доски: нарезка
+       обязана совпасть с кругом, иначе рисуем одно — стираем другое */
+    app.setEraserWidth(40);
+    const scale0 = st.view.scale;
+    itc.zoomAt({ x: 320, y: 240 }, 2);
+    const w = IB.geom.toWorld({ x: 320, y: 240 }, st.view);
+    const row = { x: w.x, y: w.y + 77 };
+    itc.setTool('pen');
+    const start = toScreen({ x: row.x - 40, y: row.y });
+    fire('pointerdown', start.x, start.y);
+    for (let i = -39; i <= 40; i++) {
+      const s = toScreen({ x: row.x + i, y: row.y });
+      fire('pointermove', s.x, s.y);
+    }
+    const end = toScreen({ x: row.x + 40, y: row.y });
+    fire('pointerup', end.x, end.y);
+    itc.setTool('eraser');
+    const hit = toScreen(row);
+    fire('pointerdown', hit.x, hit.y);
+    fire('pointermove', hit.x, hit.y + 2);
+    fire('pointerup', hit.x, hit.y + 2);
+    const pieces = store.items.filter((o) => o.type === 'stroke'
+      && o.points.some((p) => Math.abs(p.y - row.y) < 1e-9
+        && Math.abs(p.x - row.x) <= 40.001));
+    const xs = pieces.flatMap((p) => p.points.map((q) => Math.abs(q.x - row.x)));
+    const minDx = xs.length ? Math.min(...xs) : NaN;
+    itc.zoomAt({ x: 320, y: 240 }, scale0 / st.view.scale);
+    return pieces.length >= 1 && minDx >= 9.5 && minDx <= 11.5
+      && xs.some((d) => d > 30)
+      ? true : `pieces=${pieces.length} minDx=${minDx} n=${xs.length}`;
   });
   st.eraserWidth = 60;
   const beforeShapeErase = store.items.length;
@@ -2330,7 +2480,7 @@ t('иконка пера показывает выбранный цвет чер
   store.clear();
   st.selection = [];
 
-  /* ---------------- адаптивный ластик ---------------- */
+  /* ---------------- постоянный размер ластика ---------------- */
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   store.clear();
@@ -2338,9 +2488,8 @@ t('иконка пера показывает выбранный цвет чер
   st.eraserWidth = 24;
   const baseR = st.eraserWidth / 2;
 
-  /* ластик с синхронными событиями не должен разрастаться: между
-     ними нет времени, значит и скорость неизвестна */
-  t('синхронные события не раздувают ластик', () => {
+  /* радиус строго равен базовому: роста по скорости больше нет */
+  t('синхронные события держат базовый радиус', () => {
     store.clear();
     itc.setTool('pen');
     gesture(toScreen({ x: 100, y: 100 }), toScreen({ x: 200, y: 200 }));
@@ -2376,8 +2525,8 @@ t('иконка пера показывает выбранный цвет чер
     return held ? true : `радиусы: ${radii.map((r) => r.toFixed(1)).join(', ')}`;
   });
 
-  /* быстрое движение: ластик должен вырасти, но не больше предела */
-  await t('на быстром движении ластик растёт в пределах', async () => {
+  /* быстрое движение: размер остаётся базовым — роста по скорости нет */
+  await t('на быстром движении ластик не растёт', async () => {
     store.clear();
     itc.setTool('eraser');
     const start = toScreen({ x: 100, y: 400 });
@@ -2391,141 +2540,8 @@ t('иконка пера показывает выбранный цвет чер
     }
     fire('pointerup', start.x + 2000, start.y);
     const base = baseR * st.view.scale;
-    const grew = radii[radii.length - 1] > base * 1.2;
-    const capped = radii.every((r) => r <= base * 2.5 + 0.001);
-    return grew && capped ? true : `радиусы: ${radii.map((r) => r.toFixed(1)).join(', ')}`;
-  });
-
-  /* рывок ввысь, потом почти стоп: спад скорости не должен дёргать
-     круг вниз — ускорение гаснет медленно, размер держится */
-  await t('после рывка короткие заминки не просаживают круг', async () => {
-    store.clear();
-    itc.setTool('eraser');
-    const start = toScreen({ x: 100, y: 400 });
-    fire('pointerdown', start.x, start.y);
-    fire('pointermove', start.x + 300, start.y);
-    await sleep(10);
-    fire('pointermove', start.x + 600, start.y);
-    await sleep(10);
-    fire('pointermove', start.x + 900, start.y);
-    await sleep(10);
-    const peak = st.eraserRadius;
-    const radii = [];
-    for (let i = 1; i <= 5; i += 1) {
-      fire('pointermove', start.x + 900 + i, start.y);
-      await sleep(10);
-      radii.push(st.eraserRadius);
-    }
-    fire('pointerup', start.x + 905, start.y);
-    const base = baseR * st.view.scale;
-    const held = peak >= base * 2.4 && radii.every((r) => r >= base * 2.4);
-    return held ? true
-      : `пик=${peak.toFixed(1)} просадки: ${radii.map((r) => r.toFixed(1)).join(', ')} (база ${base})`;
-  });
-
-  /* резкая штриховка вперёд-назад: смещение за интервал почти нулевое,
-     но путь большой — скорость настоящая, круг не должен опадать */
-  await t('штриховка взад-вперёд не опускает круг', async () => {
-    store.clear();
-    itc.setTool('eraser');
-    const start = toScreen({ x: 100, y: 600 });
-    fire('pointerdown', start.x, start.y);
-    fire('pointermove', start.x + 400, start.y);
-    await sleep(10);
-    fire('pointermove', start.x + 800, start.y);
-    await sleep(10);
-    const radii = [];
-    for (let i = 0; i < 30; i += 1) {
-      /* пара событий внутри одного замера: туда-обратно за <8 мс */
-      fire('pointermove', start.x + 400, start.y);
-      fire('pointermove', start.x + 800, start.y);
-      await sleep(10);
-      fire('pointermove', start.x + 800, start.y);
-      radii.push(st.eraserRadius);
-    }
-    fire('pointerup', start.x + 800, start.y);
-    const base = baseR * st.view.scale;
-    const held = radii.every((r) => r >= base * 2.4);
-    return held ? true
-      : `просадки: ${radii.map((r) => r.toFixed(1)).join(', ')} (база ${base})`;
-  });
-
-  /* смешанный рисунок движения: разгон, заминки, штриховка, рывки —
-     внутри одного прохода размер обязан быть неубывающим */
-  await t('в одном проходе размер никогда не уменьшается', async () => {
-    store.clear();
-    itc.setTool('eraser');
-    const start = toScreen({ x: 100, y: 700 });
-    fire('pointerdown', start.x, start.y);
-    const radii = [];
-    let x = 0;
-    const pattern = [
-      [300, 10], [300, 10], [2, 12], [2, 12], [-400, 10], [400, 10],
-      [1, 12], [1, 12], [250, 10], [-250, 10], [3, 15], [0, 15],
-      [500, 9], [1, 12], [-500, 9], [1, 12],
-    ];
-    for (const step of pattern) {
-      x += step[0];
-      fire('pointermove', start.x + x, start.y);
-      await sleep(step[1]);
-      radii.push(st.eraserRadius);
-    }
-    fire('pointerup', start.x + x, start.y);
-    let monotone = true;
-    for (let i = 1; i < radii.length; i += 1) {
-      if (radii[i] < radii[i - 1] - 1e-9) monotone = false;
-    }
-    const grew = radii[radii.length - 1] > baseR * st.view.scale;
-    return monotone && grew ? true
-      : `монотон=${monotone} вырос=${grew}: ${radii.map((r) => r.toFixed(2)).join(', ')}`;
-  });
-
-  await t('размер ластика возвращается к базовому на новом проходе', async () => {
-    store.clear();
-    itc.setTool('eraser');
-    const a = toScreen({ x: 100, y: 400 });
-    fire('pointerdown', a.x, a.y);
-    fire('pointermove', a.x + 600, a.y);
-    await sleep(10);
-    fire('pointermove', a.x + 1200, a.y);
-    await sleep(10);
-    fire('pointerup', a.x + 1200, a.y);
-    const b = toScreen({ x: 100, y: 400 });
-    fire('pointerdown', b.x, b.y);
-    const fresh = st.eraserRadius;
-    fire('pointerup', b.x, b.y);
-    const base = baseR * st.view.scale;
-    return Math.abs(fresh - base) < 0.001 ? true : `начал с ${fresh.toFixed(1)} вместо ${base.toFixed(1)}`;
-  });
-
-  await t('выключенный адаптивный режим держит размер постоянно', async () => {
-    store.clear();
-    st.eraserAdaptive = false;
-    itc.setTool('eraser');
-    const start = toScreen({ x: 100, y: 400 });
-    fire('pointerdown', start.x, start.y);
-    const radii = [];
-    for (let i = 1; i <= 5; i += 1) {
-      fire('pointermove', start.x + i * 400, start.y);
-      await sleep(8);
-      radii.push(st.eraserRadius);
-    }
-    fire('pointerup', start.x + 2000, start.y);
-    st.eraserAdaptive = true;
-    const base = baseR * st.view.scale;
     const held = radii.every((r) => Math.abs(r - base) < 0.001);
     return held ? true : `радиусы: ${radii.map((r) => r.toFixed(1)).join(', ')}`;
-  });
-
-  t('переключатель адаптивного ластика меняет состояние и кнопку', () => {
-    st.eraserAdaptive = true;
-    app.commands.toggleAdaptiveEraser();
-    const off = st.eraserAdaptive === false;
-    const btnOff = !document.getElementById('btnAdaptiveEraser').classList.contains('active');
-    app.commands.toggleAdaptiveEraser();
-    const on = st.eraserAdaptive === true;
-    const btnOn = document.getElementById('btnAdaptiveEraser').classList.contains('active');
-    return off && btnOff && on && btnOn ? true : `off=${off} btnOff=${btnOff} on=${on} btnOn=${btnOn}`;
   });
 
   store.clear();
@@ -4523,6 +4539,60 @@ const rBefore = { x: st.ruler.x, y: st.ruler.y };
   });
   st.width = 4;
   ui.syncThickness();
+
+  /* ---------- «О программе» и обновления ---------- */
+
+  app.commands.about();
+  const aboutEl = document.getElementById('about');
+  t('О программе: окно открывается', () => aboutEl.hidden === false);
+  t('О программе: кнопка «Закрыть и установить» скрыта', () =>
+    document.getElementById('btnInstallUpdate').hidden === true);
+  t('О программе: кнопка «Скачать» скрыта', () =>
+    document.getElementById('btnDownloadUpdate').hidden === true);
+  /* инфо и авто-проверка приходят асинхронно: info из app:info,
+     статус — из update:check (оба без сети, заглушки главного процесса) */
+  await new Promise((r) => setTimeout(r, 150));
+  t('О программе: показана версия из главного процесса', () =>
+    document.getElementById('aboutVersion').textContent === '0.0.0-test');
+  t('О программе: авто-проверка завершилась', () =>
+    document.getElementById('updateStatus').textContent.includes('последняя версия'));
+
+  const aboutState = app.about.state;
+  const aboutRender = app.about.render;
+
+  Object.assign(aboutState, {
+    phase: 'available', latest: '9.9.9', assetName: 'Doka-Setup-9.9.9.exe',
+    received: 0, total: 0, file: null, error: null,
+  });
+  aboutRender();
+  t('Обновление: новая версия — появляется «Скачать»', () =>
+    document.getElementById('btnDownloadUpdate').hidden === false
+    && document.getElementById('updateStatus').textContent.includes('9.9.9'));
+  t('Обновление: до скачивания установка недоступна', () =>
+    document.getElementById('btnInstallUpdate').hidden === true);
+
+  Object.assign(aboutState, { phase: 'downloading', total: 4000, received: 1000 });
+  aboutRender();
+  t('Обновление: полоса прогресса показывает 25%', () =>
+    document.getElementById('updateProgress').hidden === false
+    && document.getElementById('updateBar').style.width === '25%'
+    && document.getElementById('updateStatus').textContent.includes('25%'));
+
+  Object.assign(aboutState, { phase: 'downloaded', received: 4000, file: 'C:\\Temp\\Doka-Setup-9.9.9.exe' });
+  aboutRender();
+  t('Обновление: после скачивания — «Закрыть и установить»', () =>
+    document.getElementById('btnInstallUpdate').hidden === false
+    && document.getElementById('btnDownloadUpdate').hidden === true);
+
+  Object.assign(aboutState, { phase: 'error', error: 'В релизе нет установщика Windows' });
+  aboutRender();
+  t('Обновление: ошибка видна в статусе', () =>
+    document.getElementById('updateStatus').textContent.includes('нет установщика'));
+
+  t('О программе: Escape закрывает окно', () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return aboutEl.hidden === true;
+  });
 
   itc.setTool('pen');
   return lines;

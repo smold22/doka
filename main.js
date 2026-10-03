@@ -4,14 +4,19 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell, clipboard, nativeImage
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
+const { spawn } = require('node:child_process');
 /* версия и автор берутся из package.json, чтобы окно «О программе»
    и метаданные exe не расходились с манифестом */
 const pkg = require('./package.json');
+const Update = require('./lib/update');
 
 const isMac = process.platform === 'darwin';
 
 let mainWindow = null;
 let currentFile = null;
+/* путь к установщику, который надо запустить после закрытия окна
+   (запрос «Закрыть и установить»); при отмене закрытия сбрасывается */
+let installOnClosed = null;
 
 const state = {
   dirty: false,
@@ -72,6 +77,9 @@ function createWindow() {
         state.dirty = false;
         notify();
         mainWindow.close();
+      } else {
+        /* сохранение отменено — окно остаётся, установщик не ждём */
+        installOnClosed = null;
       }
     } else if (res === 'discard') {
       /* «Не сохранять» должно означать «не восстановить при следующем запуске»,
@@ -85,11 +93,27 @@ function createWindow() {
       }
       state.dirty = false;
       mainWindow.close();
+    } else {
+      /* «Отмена» — пользователь передумал закрывать программу */
+      installOnClosed = null;
     }
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    /* «Закрыть и установить»: окно реально закрыто — самое время
+       запустить установщик и завершить приложение */
+    const installer = installOnClosed;
+    installOnClosed = null;
+    if (installer) {
+      try {
+        const child = spawn(installer, [], { detached: true, stdio: 'ignore' });
+        child.unref();
+      } catch (err) {
+        /* приложение уже завершается — больше сделать нечего */
+      }
+      app.quit();
+    }
   });
 }
 
@@ -165,14 +189,7 @@ function buildMenu() {
         { label: 'Горячие клавиши', accelerator: 'F1', click: () => send('menu:command', 'showShortcuts') },
         {
           label: 'О программе Доска',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'О программе',
-              message: 'Доска',
-              detail: `Бесконечная доска для рисования.\nВерсия ${app.getVersion()}\nРазработчик ${pkg.author}\n\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
-            });
-          },
+          click: () => send('menu:command', 'about'),
         },
       ],
     },
@@ -333,6 +350,143 @@ ipcMain.handle('app:dirty', async (_e, dirty) => {
 });
 
 ipcMain.handle('app:state', async () => ({ file: currentFile, dirty: state.dirty }));
+
+ipcMain.handle('app:info', async () => ({
+  version: app.getVersion(),
+  author: pkg.author,
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+}));
+
+/* ---------------- обновления ---------------- */
+
+const upd = {
+  phase: 'idle', /* idle | checking | latest | available | downloading | downloaded | installing | error */
+  current: app.getVersion(),
+  latest: null,
+  assetName: null,
+  assetSize: null,
+  assetUrl: null,
+  received: 0,
+  total: 0,
+  file: null,
+  error: null,
+  downloading: false,
+};
+
+function updSnapshot() {
+  return {
+    phase: upd.phase,
+    current: upd.current,
+    latest: upd.latest,
+    assetName: upd.assetName,
+    assetSize: upd.assetSize,
+    received: upd.received,
+    total: upd.total,
+    file: upd.file,
+    error: upd.error,
+  };
+}
+
+function sendUpdateProgress(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update:progress', payload);
+  }
+}
+
+ipcMain.handle('update:check', async () => {
+  if (upd.downloading) return updSnapshot();
+  upd.phase = 'checking';
+  upd.error = null;
+  try {
+    const r = await Update.checkLatest(upd.current);
+    upd.latest = r.latest;
+    upd.assetName = r.assetName;
+    upd.assetSize = r.assetSize;
+    upd.assetUrl = r.assetUrl;
+    upd.phase = r.hasUpdate ? 'available' : 'latest';
+    if (r.hasUpdate && !r.assetUrl) upd.error = 'В релизе нет установщика Windows';
+  } catch (err) {
+    upd.phase = 'error';
+    upd.error = `Проверка не удалась: ${Update.errMsg(err)}`;
+  }
+  return updSnapshot();
+});
+
+ipcMain.handle('update:download', async () => {
+  if (upd.phase === 'downloaded' || upd.downloading) return updSnapshot();
+  if (!upd.assetUrl) {
+    upd.phase = 'error';
+    upd.error = upd.error || 'В релизе нет установщика Windows';
+    return updSnapshot();
+  }
+  upd.downloading = true;
+  upd.phase = 'downloading';
+  upd.received = 0;
+  upd.total = upd.assetSize || 0;
+  upd.error = null;
+  upd.file = null;
+  const dest = path.join(app.getPath('temp'), upd.assetName || 'Doka-Setup.exe');
+  let lastSent = 0;
+  try {
+    const r = await Update.download(upd.assetUrl, dest, {
+      onProgress: ({ received, total }) => {
+        upd.received = received;
+        upd.total = total || upd.total;
+        const now = Date.now();
+        /* прогресс шлём не чаще раза в 120 мс, чтобы не забивать IPC */
+        if (now - lastSent >= 120 || received === total) {
+          lastSent = now;
+          sendUpdateProgress({ received, total: upd.total });
+        }
+      },
+    });
+    upd.received = r.received;
+    upd.total = r.total || upd.total;
+    upd.file = dest;
+    upd.phase = 'downloaded';
+  } catch (err) {
+    upd.phase = 'error';
+    upd.error = `Скачивание не удалось: ${Update.errMsg(err)}`;
+  } finally {
+    upd.downloading = false;
+  }
+  return updSnapshot();
+});
+
+ipcMain.handle('update:install', async () => {
+  const file = upd.file;
+  if (!file || !fsSync.existsSync(file)) {
+    upd.phase = upd.assetUrl ? 'available' : 'error';
+    upd.file = null;
+    upd.error = 'Установщик не найден — скачайте его заново';
+    return { ...updSnapshot(), ok: false };
+  }
+  /* окно закрывается штатно (с вопросом о несохранённых изменениях),
+     установщик стартует в обработчике closed — см. installOnClosed */
+  installOnClosed = file;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    /* close асинхронен (диалог сохранения): если пользователь отменит,
+       флаг снимет close-обработчик, и установщик не запустится */
+    mainWindow.close();
+    return { ...updSnapshot(), ok: true };
+  }
+  installOnClosed = null;
+  try {
+    const child = spawn(file, [], { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch (err) {
+    upd.phase = 'downloaded';
+    return { ...updSnapshot(), ok: false, error: Update.errMsg(err) };
+  }
+  app.quit();
+  return { ...updSnapshot(), ok: true };
+});
+
+ipcMain.handle('update:openPage', async () => {
+  await shell.openExternal(Update.RELEASES_URL);
+  return true;
+});
 
 ipcMain.handle('app:toast', async (_e, { type = 'info', message = '' }) => {
   if (!mainWindow) return true;

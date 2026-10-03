@@ -212,14 +212,13 @@
       <div class="insp-block" data-for="eraser">
         <div class="insp-title">Ластик</div>
         <div class="eraser-size">
-          <input type="range" id="eraserSlider" min="8" max="80" step="2" value="24" aria-label="Размер круга ластика">
+          <input type="range" id="eraserSlider" min="8" max="160" step="2" value="24" aria-label="Размер круга ластика">
           <span id="eraserSizeValue">24</span>
         </div>
         <div class="mini-actions">
-          <button id="btnAdaptiveEraser" data-cmd="toggleAdaptiveEraser">Расти на бегу</button>
           <button data-cmd="clearBoard">Очистить доску</button>
         </div>
-        <p class="insp-hint">Круг — рабочая область ластика: контур режется ровно по нему, внутри круга исчезает, снаружи остаётся. На быстром движении ластик сам становится шире — так меньше проходов. Отключите, если нужна точность.</p>
+          <p class="insp-hint">Размер задаётся в пикселях экрана и не зависит от масштаба холста. Круг — рабочая область ластика: контур режется ровно по нему, внутри круга исчезает, снаружи остаётся.</p>
       </div>
 
       <div class="insp-block" data-for="select">
@@ -342,6 +341,36 @@
             <dt>Ctrl + Shift + C</dt><dd>Клетка</dd>
           </dl>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="about" class="modal" hidden>
+    <div class="modal-card about-card">
+      <div class="modal-head">
+        <h2>О программе Доска</h2>
+        <button id="closeAbout" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="about-block">
+          <p class="about-desc">Бесконечная доска для рисования: перо, маркер, ластик, заливка, фигуры, текст и приборы для черчения.</p>
+          <dl class="about-info">
+            <dt>Версия</dt><dd id="aboutVersion">—</dd>
+            <dt>Разработчик</dt><dd id="aboutAuthor">—</dd>
+            <dt>Движок</dt><dd id="aboutEngine">—</dd>
+          </dl>
+        </div>
+        <div class="about-block update-box">
+          <h3>Обновления</h3>
+          <p class="update-status" id="updateStatus">Нажмите «Проверить обновления», чтобы узнать, есть ли новая версия.</p>
+          <div class="update-progress" id="updateProgress" hidden><span class="update-bar" id="updateBar"></span></div>
+          <div class="update-actions">
+            <button class="up-btn" id="btnCheckUpdate">Проверить обновления</button>
+            <button class="up-btn primary" id="btnDownloadUpdate" hidden>Скачать</button>
+            <button class="up-btn primary" id="btnInstallUpdate" hidden>Закрыть и установить</button>
+            <button class="up-btn ghost" id="btnReleases" title="Открыть страницу релизов в браузере">Страница релизов</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

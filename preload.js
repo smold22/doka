@@ -13,7 +13,17 @@ contextBridge.exposeInMainWorld('inkboard', {
   readClipboard: () => ipcRenderer.invoke('clipboard:read'),
   setDirty: (dirty) => ipcRenderer.invoke('app:dirty', dirty),
   getState: () => ipcRenderer.invoke('app:state'),
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  openReleases: () => ipcRenderer.invoke('update:openPage'),
   reportError: (message) => ipcRenderer.invoke('app:toast', { type: 'error', message }),
+  onUpdateProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('update:progress', handler);
+    return () => ipcRenderer.removeListener('update:progress', handler);
+  },
   onMenuCommand: (cb) => {
     const handler = (_e, command) => cb(command);
     ipcRenderer.on('menu:command', handler);

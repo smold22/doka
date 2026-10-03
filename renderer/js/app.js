@@ -36,7 +36,7 @@
 
   /* Диаметр круга ластика: слайдер в его панели живёт в этих пределах */
   const ERASER_MIN = 8;
-  const ERASER_MAX = 80;
+  const ERASER_MAX = 160;
 
   const state = {
   tool: prefs.tool || 'pen',
@@ -51,7 +51,6 @@
   width: prefs.width || 4,
     fill: prefs.fill || 'none',
     eraserWidth: Math.min(ERASER_MAX, Math.max(ERASER_MIN, Number(prefs.eraserWidth) || 24)),
-    eraserAdaptive: prefs.eraserAdaptive !== false,
     textSize: prefs.textSize || 28,
     showGrid: prefs.showGrid !== false,
     showCells: prefs.showCells === true,
@@ -112,11 +111,13 @@
       savePrefs();
     },
 
-    /* размер круга ластика: слайдер в панели ластика */
+    /* размер круга ластика: слайдер в панели ластика.
+       Диаметр в экранных пикселях и НЕ зависит от зума холста —
+       при zoom-out 8px всё ещё видно (по нему и режем: см. interactions) */
     setEraserWidth(value) {
       state.eraserWidth = Math.min(ERASER_MAX, Math.max(ERASER_MIN, Number(value) || ERASER_MIN));
       if (state.eraser) {
-        state.eraserRadius = (state.eraserWidth / 2) * state.view.scale;
+        state.eraserRadius = state.eraserWidth / 2;
       }
       savePrefs();
       ui.syncEraser();
@@ -135,6 +136,9 @@
       ui.updateZoom();
       ui.updateSelectionBar();
       interactions.layoutEditor();
+      /* в жесте стирания показанный круг = радиус доски × масштаб вида —
+         пересчитываем на каждый кадр зума, чтобы круг не отставал */
+      interactions.syncEraserRadius();
       app.requestRender();
     },
 
@@ -481,22 +485,161 @@
       state.showCells = mode === 'cells';
       ui.setGridActive(state.showGrid);
       ui.setCellsActive(state.showCells);
-      ui.setAdaptiveEraser(state.eraserAdaptive);
       savePrefs();
       app.requestRender();
     },
     toggleGrid: () => commands.setBackground(state.showGrid && !state.showCells ? 'none' : 'grid'),
-    toggleCells: () => commands.setBackground(state.showCells ? 'none' : 'cells'),
-    toggleAdaptiveEraser: () => {
-      state.eraserAdaptive = !state.eraserAdaptive;
-      ui.setAdaptiveEraser(state.eraserAdaptive);
-      savePrefs();
-      app.toast(state.eraserAdaptive
-        ? 'Ластик будет расти на быстром движении'
-        : 'Ластик всегда одного размера');
-    },
+    toggleCells: () => commands.setBackground(state.showCells && !state.showGrid ? 'none' : 'cells'),
     showShortcuts: () => ui.showShortcuts(true),
+    about: () => openAbout(),
   };
+
+  /* ---------------- «О программе» и обновления ---------------- */
+
+  const updateView = {
+    phase: 'idle', /* idle | checking | latest | available | downloading | downloaded | installing | error */
+    current: '',
+    latest: null,
+    assetName: null,
+    assetSize: null,
+    received: 0,
+    total: 0,
+    file: null,
+    error: null,
+  };
+  let aboutAutoChecked = false;
+
+  function fmtMb(bytes) {
+    return (bytes / 1048576).toFixed(1).replace('.', ',');
+  }
+
+  function updateStatusText() {
+    const v = updateView;
+    switch (v.phase) {
+      case 'checking':
+        return 'Проверяем наличие новой версии…';
+      case 'latest':
+        return `Установлена последняя версия ${v.current}.`;
+      case 'available':
+        return v.assetName
+          ? `Доступна новая версия ${v.latest} (установлена ${v.current}). Нажмите «Скачать», чтобы получить установщик.`
+          : `Доступна новая версия ${v.latest}, но установщик не найден в релизе — откройте страницу релизов.`;
+      case 'downloading':
+        return v.total > 0
+          ? `Скачивание: ${fmtMb(v.received)} из ${fmtMb(v.total)} МБ (${Math.floor((v.received / v.total) * 100)}%)`
+          : `Скачивание: ${fmtMb(v.received)} МБ…`;
+      case 'downloaded':
+        return `Установщик ${v.assetName} скачан (${fmtMb(v.total)} МБ). Нажмите «Закрыть и установить».`;
+      case 'installing':
+        return 'Закрываем программу и запускаем установку…';
+      case 'error':
+        return v.error || 'Не удалось проверить обновления.';
+      default:
+        return `Установлена версия ${v.current || '—'}. Нажмите «Проверить обновления».`;
+    }
+  }
+
+  function renderUpdate() {
+    const v = updateView;
+    const el = ui.el;
+    el.updateStatus.textContent = updateStatusText();
+    const showBar = v.phase === 'downloading' && v.total > 0;
+    el.updateProgress.hidden = !showBar;
+    if (showBar) {
+      el.updateBar.style.width = `${Math.min(100, Math.floor((v.received / v.total) * 100))}%`;
+    }
+    const busy = v.phase === 'checking' || v.phase === 'downloading';
+    el.btnCheckUpdate.disabled = busy;
+    el.btnCheckUpdate.textContent = v.phase === 'checking'
+      ? 'Проверяем…'
+      : (v.phase === 'idle' ? 'Проверить обновления' : 'Проверить снова');
+    el.btnDownloadUpdate.hidden = v.phase !== 'available';
+    el.btnDownloadUpdate.disabled = busy;
+    el.btnInstallUpdate.hidden = v.phase !== 'downloaded';
+  }
+
+  async function loadAboutInfo() {
+    try {
+      const info = await api.appInfo();
+      ui.el.aboutVersion.textContent = info.version || '—';
+      ui.el.aboutAuthor.textContent = info.author || '—';
+      ui.el.aboutEngine.textContent = info.electron
+        ? `Electron ${info.electron} · Chromium ${info.chrome}`
+        : '—';
+      if (info.version) {
+        updateView.current = info.version;
+        if (updateView.phase === 'idle') renderUpdate();
+      }
+    } catch (err) {
+      /* главный процесс обязан отвечать — молча оставляем прочерки */
+    }
+  }
+
+  async function checkForUpdates() {
+    updateView.phase = 'checking';
+    updateView.error = null;
+    renderUpdate();
+    let snap;
+    try {
+      snap = await api.checkUpdate();
+    } catch (err) {
+      snap = { phase: 'error', error: `Проверка не удалась: ${String((err && err.message) || err)}` };
+    }
+    Object.assign(updateView, snap || {});
+    renderUpdate();
+  }
+
+  async function downloadUpdate() {
+    updateView.phase = 'downloading';
+    updateView.received = 0;
+    updateView.error = null;
+    renderUpdate();
+    let snap;
+    try {
+      snap = await api.downloadUpdate();
+    } catch (err) {
+      snap = { phase: 'error', file: null, error: `Скачивание не удалось: ${String((err && err.message) || err)}` };
+    }
+    Object.assign(updateView, snap || {});
+    renderUpdate();
+  }
+
+  async function installUpdate() {
+    updateView.phase = 'installing';
+    updateView.error = null;
+    renderUpdate();
+    let snap;
+    try {
+      snap = await api.installUpdate();
+    } catch (err) {
+      snap = { ok: false, error: String((err && err.message) || err) };
+    }
+    if (snap && snap.ok === false) {
+      updateView.phase = updateView.file ? 'downloaded' : 'available';
+      updateView.error = snap.error || 'Не удалось запустить установщик';
+      renderUpdate();
+      app.toast(updateView.error, true);
+      return;
+    }
+    /* приложение закрывается; если через секунду окно всё ещё открыто,
+       значит, закрытие отменено (диалог сохранения) — возвращаем кнопку */
+    setTimeout(() => {
+      updateView.phase = updateView.file ? 'downloaded' : 'available';
+      renderUpdate();
+    }, 1200);
+  }
+
+  function openAbout() {
+    ui.showAbout(true);
+    loadAboutInfo();
+    if (!aboutAutoChecked) {
+      /* первый раз за сеанс — проверяем сами, чтобы юзер не нажимал вручную */
+      aboutAutoChecked = true;
+      checkForUpdates();
+    } else {
+      renderUpdate();
+    }
+  }
 
   /* ---------------- настройки ---------------- */
 
@@ -514,7 +657,6 @@
       widths: state.widths,
       fill: state.fill,
       eraserWidth: state.eraserWidth,
-      eraserAdaptive: state.eraserAdaptive,
       textSize: state.textSize,
       showGrid: state.showGrid,
       showCells: state.showCells,
@@ -580,6 +722,7 @@
     if (key === 'Escape') {
       e.preventDefault();
       ui.showShortcuts(false);
+      ui.showAbout(false);
       ui.closeShapeMenu();
       interactions.finishTextEdit();
       interactions.deselect();
@@ -935,6 +1078,26 @@
       if (e.target === ui.el.shortcuts) ui.showShortcuts(false);
     });
 
+    document.getElementById('closeAbout').addEventListener('click', () => ui.showAbout(false));
+    ui.el.about.addEventListener('click', (e) => {
+      if (e.target === ui.el.about) ui.showAbout(false);
+    });
+    ui.el.btnCheckUpdate.addEventListener('click', () => checkForUpdates());
+    ui.el.btnDownloadUpdate.addEventListener('click', () => downloadUpdate());
+    ui.el.btnInstallUpdate.addEventListener('click', () => installUpdate());
+    ui.el.btnReleases.addEventListener('click', () => {
+      if (api.openReleases) api.openReleases();
+    });
+    /* прогресс скачивания шлёт главный процесс — обновляем полосу и проценты */
+    if (api.onUpdateProgress) {
+      api.onUpdateProgress((p) => {
+        if (!p) return;
+        updateView.received = p.received || 0;
+        updateView.total = p.total || updateView.total;
+        if (updateView.phase === 'downloading') renderUpdate();
+      });
+    }
+
     /* Меню выбора фигуры живёт само: закрывается кликом вне, Escape и прокруткой */
     document.addEventListener('pointerdown', (e) => {
       if (ui.el.shapeMenu.hidden) return;
@@ -1026,6 +1189,9 @@
       },
       commands,
       state,
+      /* окно «О программе»: state — живое состояние обновлений,
+         render — перерисовка (тесты симулируют фазы через state) */
+      about: { state: updateView, render: renderUpdate, open: openAbout, check: checkForUpdates },
       widthFor,
       setWidthFor,
       /* размер круга ластика задаёт слайдер в его панели */

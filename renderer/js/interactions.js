@@ -869,20 +869,19 @@
           break;
         }
         case 'eraser': {
+          /* экранный диаметр → единицы доски: нарезка совпадает с кругом */
+          const boardR = (state.eraserWidth / 2) / state.view.scale;
           const d = {
             type: 'erase',
             circles: [],
-            radius: state.eraserWidth / 2,
-            /* размер из настроек: рост считается от него, а не от текущего */
-            baseRadius: state.eraserWidth / 2,
+            radius: boardR,
             scale: state.view.scale,
             base: store.snapshot(),
             applied: 0,
           };
           drag = d;
-          startEraseMotion();
           state.eraser = screen;
-          state.eraserRadius = (state.eraserWidth / 2) * state.view.scale;
+          syncEraserRadius();
           collectErase(d, world);
           eraseNow(d);
           break;
@@ -1085,70 +1084,6 @@
       };
       return true;
     }
-
-    /* ---------------- адаптивный ластик ----------------
-
-       Радиус растёт со скоростью указателя: на быстром проходе ластик
-       шире, на медленном — размер из настроек. Скорость сглаживается
-       экспоненциально, иначе размер дёргался бы на каждом кадре.
-
-       Важная деталь: если между двумя событиями прошло меньше MIN_SAMPLE_MS
-       миллисекунд, данных о скорости нет — радиус остаётся прежним. Так
-       синхронная отправка событий (в тестах, при программном рисовании)
-       не превращает ластик в пятно во всю доску. */
-  const ERASER_GROWTH = 1.5;
-  /* Ниже ERASER_SLOW_SPEED ластик не растёт вовсе, дальше размер плавно
-     выходит на предел: медленное вытирание должно оставаться точным. */
-  const ERASER_SLOW_SPEED = 400;
-  const ERASER_FAST_SPEED = 2200;
-  const ERASER_MIN_SAMPLE_MS = 8;
-
-  let eraseMotion = null;
-
-  function startEraseMotion() {
-    eraseMotion = { time: 0, x: 0, y: 0, speed: 0, radius: 0, path: 0 };
-    return eraseMotion;
-  }
-
-  /* Возвращает новый радиус ластика для текущего положения указателя. */
-  function trackEraseMotion(world, time, baseRadius, adaptive) {
-    const m = eraseMotion || startEraseMotion();
-    if (!m.time) {
-      m.time = time;
-      m.x = world.x;
-      m.y = world.y;
-      m.path = 0;
-      m.radius = baseRadius;
-      return baseRadius;
-    }
-    /* путь копится каждым событием, даже между замерами скорости */
-    m.path += G.dist({ x: m.x, y: m.y }, world);
-    m.x = world.x;
-    m.y = world.y;
-    const dt = time - m.time;
-    if (dt >= ERASER_MIN_SAMPLE_MS) {
-      /* скорость — это длина пути за интервал, а не смещение: резкая
-         штриховка вперёд-назад даёт большой путь при нулевом смещении */
-      const instant = m.path / (dt / 1000);
-      /* вверх скорость подскакивает резко, вниз спадает медленно */
-      const alpha = instant > m.speed ? 0.35 : 0.06;
-      m.speed = m.speed * (1 - alpha) + instant * alpha;
-      m.path = 0;
-      m.time = time;
-    }
-    if (!adaptive) {
-      m.radius = baseRadius;
-      return baseRadius;
-    }
-    const ramp = G.clamp(
-      (m.speed - ERASER_SLOW_SPEED) / (ERASER_FAST_SPEED - ERASER_SLOW_SPEED), 0, 1);
-    const target = baseRadius * (1 + ramp * ERASER_GROWTH);
-    /* в одном проходе круг только растёт: спад заставлял видимый размер
-       дрожать туда-сюда на зажатой кнопке. К базовому размеру ластик
-       возвращается следующим проходом — см. startEraseMotion */
-    if (target > m.radius) m.radius += (target - m.radius) * 0.75;
-    return m.radius;
-  }
 
   function collectErase(d, world) {
       const step = Math.max(2, d.radius / 2);
@@ -1420,6 +1355,19 @@
       return true;
     }
 
+    /* Круг ластика — в экранных пикселях: диаметр из слайдера НЕ зависит
+       от зума (иначе zoom-out прячет и самый большой размер). Поэтому в
+       жесте стирания drag.radius хранится в единицах доски как
+       (слайдер/2)/scale — нарезанная область всегда равна нарисованному
+       кругу, а нарисованный показывает экранное значение */
+    function syncEraserRadius() {
+      if (drag && drag.type === 'erase') {
+        state.eraserRadius = drag.radius * state.view.scale;
+      } else {
+        state.eraserRadius = state.eraserWidth / 2;
+      }
+    }
+
     function onPointerMove(e) {
       const screen = pointerPos(e);
       lastPointer = screen;
@@ -1428,7 +1376,7 @@
 
       if (state.tool === 'eraser') {
         state.eraser = screen;
-        state.eraserRadius = (state.eraserWidth / 2) * state.view.scale;
+        syncEraserRadius();
       }
 
       if (!drag) {
@@ -1476,10 +1424,7 @@
           break;
         }
         case 'erase': {
-          /* база всегда исходная: рост обязан считаться от неё, иначе
-             радиал увеличивается в геометрической прогрессии каждый кадр */
-          drag.radius = trackEraseMotion(world, e.timeStamp, drag.baseRadius, state.eraserAdaptive);
-          state.eraserRadius = drag.radius * state.view.scale;
+          syncEraserRadius();
           const was = drag.circles.length;
           collectErase(drag, world);
           if (drag.circles.length !== was) eraseNow(drag);
@@ -1863,6 +1808,7 @@
     return {
       attach, detach, setTool, setSpace, getPreview, syncGuide, showInstrument, hideInstruments,
       zoomAt, zoomTo, zoomByStep, zoomToScale, fitToContent, resetView,
+      syncEraserRadius,
       isZooming: () => !!zoomAnim,
       setSelection, deselect, selectAll, deleteSelection, clearBoard, duplicateSelection, toggleLock,
       copySelection, paste, pasteContent, importItems, insertImage, insertText,

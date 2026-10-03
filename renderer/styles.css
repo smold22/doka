@@ -768,3 +768,59 @@ svg .fill { fill: currentColor; }
   text-align: center;
 }
 .modal-body dd { margin: 0; color: var(--text-dim); font-size: 13px; }
+
+/* ---------------- about / updates ---------------- */
+
+.about-card { width: min(520px, 92%); }
+.about-block + .about-block { margin-top: 18px; }
+.about-desc { margin: 0 0 14px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.about-info {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 14px;
+  align-items: baseline;
+}
+.about-info dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+}
+.about-info dd { margin: 0; font-size: 13px; color: var(--text); }
+.update-box { padding-top: 16px; border-top: 1px solid var(--line); }
+.update-status { margin: 0 0 12px; font-size: 13px; color: var(--text-dim); line-height: 1.45; min-height: 20px; }
+.update-progress {
+  height: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.update-progress[hidden] { display: none; }
+.update-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.up-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.up-btn:hover { background: #eef1f5; }
+.up-btn:disabled { opacity: 0.55; cursor: default; }
+.up-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.up-btn.primary:hover { background: #2a6fd4; }
+.up-btn.ghost { border-color: transparent; background: transparent; color: var(--accent); }
+.up-btn.ghost:hover { background: var(--accent-soft); }
