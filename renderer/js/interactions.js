@@ -500,6 +500,11 @@
           fontSize,
           color: state.color,
           text: line,
+          bold: state.textFmt.bold,
+          italic: state.textFmt.italic,
+          underline: state.textFmt.underline,
+          family: state.textFmt.family,
+          align: state.textFmt.align,
         });
         const box = M.textBox(draft);
         draft.h = box.lines.length * box.lineHeight;
@@ -575,6 +580,18 @@
 
     /* ---------------- редактор текста ---------------- */
 
+    /* правка началась или закончилась: панель настроек показывает
+       блок форматирования текста, пока открыто поле ввода */
+    function notifyEditing() {
+      if (app.onEditingChanged) app.onEditingChanged();
+    }
+
+    /* черновик открытой правки: на него сразу ложатся цвет, размер и
+       начертание, а в доску они попадают одним patch при коммите */
+    function editingDraft() {
+      return editor ? editor.draft : null;
+    }
+
     function makeEditor(draft, isNew, origin) {
       const ta = document.createElement('textarea');
       ta.value = draft.text || '';
@@ -583,7 +600,11 @@
       editor = { draft, isNew, origin, ta, pointerStart: null };
       layoutEditor();
       ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
+      if (isNew) ta.setSelectionRange(ta.value.length, ta.value.length);
+      /* существующий текст выделяется целиком: набор сразу его переписывает,
+         щелчок внутри поля ставит курсор и снимает выделение */
+      else ta.select();
+      notifyEditing();
 
       ta.addEventListener('input', () => {
         editor.draft.text = ta.value;
@@ -637,6 +658,14 @@
       ta.style.left = `${origin.x}px`;
       ta.style.top = `${origin.y}px`;
       ta.style.transform = 'none';
+      /* начертание и цвет поля ввода повторяют объект: пока идёт правка,
+         именно textarea показывает текст, а не холст */
+      ta.style.fontFamily = M.familyStack(draft.family);
+      ta.style.fontWeight = draft.bold ? '700' : '400';
+      ta.style.fontStyle = draft.italic ? 'italic' : 'normal';
+      ta.style.textDecoration = draft.underline ? 'underline' : 'none';
+      ta.style.textAlign = draft.align === 'center' ? 'center' : draft.align === 'right' ? 'right' : 'left';
+      ta.style.color = draft.color;
     }
 
     function draftForPaint() {
@@ -662,6 +691,11 @@
         w: 320 / scale,
         fontSize: G.clamp(state.textSize / scale, 8, 200),
         color: state.color,
+        bold: state.textFmt.bold,
+        italic: state.textFmt.italic,
+        underline: state.textFmt.underline,
+        family: state.textFmt.family,
+        align: state.textFmt.align,
       });
       makeEditor(draft, true, null);
       app.requestRender();
@@ -673,6 +707,7 @@
       const text = ta.value.replace(/\s+$/, '');
       editor = null;
       if (ta.parentNode) ta.parentNode.removeChild(ta);
+      notifyEditing();
 
       if (!text) {
         app.requestRender();
@@ -688,12 +723,23 @@
       } else {
         const obj = store.get(origin);
         if (obj) {
-          const probe = { ...obj, text };
+          /* текст, геометрия и начертание пишутся одним patch:
+             отмена возвращает объект к состоянию до правки целиком */
+          const probe = Object.assign({}, obj, draft, { text });
           const box = M.textBox(probe);
-          store.patch(
-            [{ id: obj.id, before: { text: obj.text }, after: { text, h: box.lines.length * box.lineHeight, w: Math.max(60, box.w) } }],
-            'Правка текста'
-          );
+          const before = { text: obj.text, h: obj.h, w: obj.w };
+          const after = {
+            text,
+            h: box.lines.length * box.lineHeight,
+            w: Math.max(60, box.w),
+          };
+          for (const key of ['fontSize', 'color', 'align', 'bold', 'italic', 'underline', 'family']) {
+            if (obj[key] !== draft[key]) {
+              before[key] = obj[key];
+              after[key] = draft[key];
+            }
+          }
+          store.patch([{ id: obj.id, before, after }], 'Правка текста');
         }
       }
       app.markDirty();
@@ -705,6 +751,7 @@
       const { ta } = editor;
       editor = null;
       if (ta.parentNode) ta.parentNode.removeChild(ta);
+      notifyEditing();
       app.requestRender();
     }
 
@@ -716,6 +763,10 @@
     }
 
     const isEditing = () => !!editor;
+
+    /* id правимого объекта: его не рисуем — текст показывает само поле
+       ввода, иначе старый набор виден под новым */
+    const editingId = () => (editor && editor.origin ? editor.origin : null);
 
     /* ---------------- указатель ---------------- */
 
@@ -853,15 +904,19 @@
 
       switch (state.tool) {
         case 'pen':
+        case 'penBlack':
+        case 'penBlue':
+        case 'penRed':
         case 'highlighter': {
           const highlighter = state.tool === 'highlighter';
           const stroke = M.createStroke({
             kind: highlighter ? 'highlighter' : 'pen',
-            /* у маркера своя палитра, у пера — общие чернила.
+            /* у маркера своя палитра, у пера — общие чернила,
+               у трёх ручек — фиксированный цвет инструмента.
                Ровно втрое против базовой толщины, без нижнего порога:
                порог 12 склеивал первые два пресета (2 и 4), и оба
                рисовались одинаковой линией в 12 пикселей. */
-            color: highlighter ? (state.hiColor || state.color) : state.color,
+            color: highlighter ? (state.hiColor || state.color) : app.colorFor(state.tool),
             width: highlighter ? state.width * 3 : state.width,
             points: [world],
           });
@@ -886,9 +941,14 @@
           eraseNow(d);
           break;
         }
-        case 'text':
-          startTextEdit(null, world);
+        case 'text': {
+          /* клик по уже написанному тексту открывает его правку: иначе
+             новый набор ложится прямо поверх старого */
+          const hit = Hit.hitTest(store, world, 8 / state.view.scale);
+          if (hit && hit.type === 'text') startTextEdit(hit);
+          else startTextEdit(null, world);
           break;
+        }
         case 'line':
         case 'arrow':
         case 'rect':
@@ -1105,8 +1165,9 @@
     }
 
     /* Стирание при движении: ластик режет контур по своему кругу — внутри
-       круга контур исчезает, снаружи остаётся. Текст, картинки и залитые
-       фигуры удаляются целиком, как только задеты. Выделение не меняется. */
+       круга контур исчезает, снаружи остаётся. Текст и залитые фигуры
+       удаляются целиком, как только задеты; картинки ластик не трогает.
+       Выделение не меняется. */
     function eraseFrom(base, circles) {
       if (!circles || !circles.length) return { items: base, cut: false };
       const touched = new Set();
@@ -1134,7 +1195,7 @@
     }
 
     /* Что ластик делает с объектом: null — удалить целиком, 'keep' — контур
-       не задет, массив — заменить обломками. */
+       цел или объект трогать нельзя, массив — заменить обломками. */
     function eraserPieces(o, circles) {
       if (o.type === 'stroke') return cutStroke(o, circles);
       if (o.type === 'shape') {
@@ -1143,7 +1204,9 @@
         if ((o.fill && o.fill !== 'none') || G.isSolidShape(o.shape)) return null;
         return cutShapeOutline(o, circles);
       }
-      /* текст и картинки удаляются целиком при касании */
+      /* картинка не стирается: её вытирают только выделением и Delete */
+      if (o.type === 'image') return 'keep';
+      /* текст удаляется целиком при касании */
       return null;
     }
 
@@ -1812,7 +1875,8 @@
       isZooming: () => !!zoomAnim,
       setSelection, deselect, selectAll, deleteSelection, clearBoard, duplicateSelection, toggleLock,
       copySelection, paste, pasteContent, importItems, insertImage, insertText,
-      startTextEdit, commitTextEdit, cancelTextEdit, finishTextEdit, isEditing,
+      startTextEdit, commitTextEdit, cancelTextEdit, finishTextEdit, isEditing, editingId,
+      editingDraft,
       layoutEditor,
       handleTargets,
       lastPointer,

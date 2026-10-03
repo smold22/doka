@@ -4,6 +4,7 @@
 
   const IB = (global.IB = global.IB || {});
   const G = IB.geom;
+  const M = IB.model;
 
   /* Палитра чернил: 29 цветов, пять в ряд, по кругу оттенков. */
   const INK_COLORS = [
@@ -77,6 +78,9 @@
   const TOOL_LABELS = {
     select: 'Выделение',
     pen: 'Перо',
+    penBlack: 'Чёрная ручка',
+    penBlue: 'Синяя ручка',
+    penRed: 'Красная ручка',
     highlighter: 'Маркер',
     eraser: 'Ластик',
     fill: 'Заливка',
@@ -196,7 +200,6 @@
     const el = {
       stage: document.getElementById('stage'),
       tools: Array.from(document.querySelectorAll('.tool[data-tool]')),
-      penPicks: Array.from(document.querySelectorAll('.pen-pick')),
       inspector: document.getElementById('inspector'),
       inkSwatches: document.getElementById('swatchesInk'),
       inkTitle: document.getElementById('inkTitle'),
@@ -204,6 +207,9 @@
       thickness: document.getElementById('thickness'),
       fillRow: document.querySelector('.fill-row'),
       textSizeValue: document.getElementById('textSizeValue'),
+      fmtBtns: Array.from(document.querySelectorAll('.fmt-btn[data-fmt]')),
+      textAlignBtns: Array.from(document.querySelectorAll('.text-aligns [data-align]')),
+      fontSelect: document.getElementById('fontSelect'),
       stTool: document.getElementById('stTool'),
       stCoords: document.getElementById('stCoords'),
       stCount: document.getElementById('stCount'),
@@ -242,6 +248,10 @@
     };
 
     let toastTimer = null;
+
+    /* пока открыто поле ввода, панель живёт в режиме «Текст» — так
+       форматирование доступно и при инструменте «Выделение» */
+    let editing = false;
 
     /* ---------- палитры ---------- */
 
@@ -303,10 +313,30 @@
         app.setEraserWidth(Number(el.eraserSlider.value));
       });
 
+      /* список гарнитур — из модели: один источник правды для панели и файлов */
+      el.fontSelect.textContent = '';
+      for (const fam of M.FONT_FAMILIES) {
+        const opt = document.createElement('option');
+        opt.value = fam.id;
+        opt.textContent = fam.label;
+        el.fontSelect.appendChild(opt);
+      }
+      el.fontSelect.addEventListener('change', () => app.setTextFamily(el.fontSelect.value));
+
       el.inspector.addEventListener('click', (e) => {
         const step = e.target.closest('[data-textsize]');
         if (step) {
           app.changeTextSize(Number(step.dataset.textsize));
+          return;
+        }
+        const fmt = e.target.closest('[data-fmt]');
+        if (fmt) {
+          app.toggleTextStyle(fmt.dataset.fmt);
+          return;
+        }
+        const align = e.target.closest('[data-align]');
+        if (align) {
+          app.setTextAlign(align.dataset.align);
           return;
         }
         const cmd = e.target.closest('[data-cmd]');
@@ -436,6 +466,23 @@
       el.textSizeValue.textContent = String(Math.round(state.textSize));
     }
 
+    /* кнопки начертания и выравнивания показывают формат того, к чему
+       применится следующий клик: открытой правки, выделения или умолчаний */
+    function syncTextFormat() {
+      const fmt = app.currentTextFormat();
+      for (const b of el.fmtBtns) {
+        const on = !!fmt[b.dataset.fmt];
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+      const family = fmt.family || 'ui';
+      if (el.fontSelect.value !== family) el.fontSelect.value = family;
+      const align = fmt.align || 'left';
+      for (const b of el.textAlignBtns) {
+        b.classList.toggle('active', b.dataset.align === align);
+      }
+    }
+
     function syncSwatches() {
       document.documentElement.style.setProperty('--ink', state.color);
       /* иконка маркера показывает его собственный цвет, а не цвет чернил */
@@ -453,20 +500,16 @@
       syncFill();
     }
 
-    /* подсветка ручки выбранного цвета в нижней панели */
-    function markPenColor(color) {
-      for (const b of el.penPicks) b.classList.toggle('active', b.dataset.pen === color);
-    }
-
     /* ---------- инструменты ---------- */
 
     function setTool(tool) {
       for (const b of el.tools) b.classList.toggle('active', b.dataset.tool === tool);
       el.stage.className = el.stage.className.replace(/\btool-\S+/g, '').trim();
       el.stage.classList.add(`tool-${tool}`);
+      const active = editing ? 'text' : tool;
       for (const block of el.inspector.querySelectorAll('.insp-block')) {
         const list = (block.dataset.for || '').split(/\s+/);
-        block.classList.toggle('visible', list.includes(tool));
+        block.classList.toggle('visible', list.includes(active));
       }
       el.stTool.textContent = TOOL_LABELS[tool] || tool;
       /* палитра при «Заливке» выбирает цвет заливки, а не чернил */
@@ -475,8 +518,15 @@
       syncThickness();
       syncFill();
       syncTextSize();
+      syncTextFormat();
       syncProtractorLearn();
       updateSelectionBar();
+    }
+
+    /* правка текста открыта или закрыта: блоки панели перестраиваются */
+    function setEditing(on) {
+      editing = !!on;
+      setTool(state.tool);
     }
 
     /* ---------- верхняя панель и статус ---------- */
@@ -615,7 +665,8 @@ input.value = current;
       openShapeMenu, closeShapeMenu, syncShapeVariant, VARIANT_MENUS,
       ELLIPSE_VARIANTS, ellipseVariant, TRIANGLE_VARIANTS, triangleVariant,
       SOLID_VARIANTS, solidVariant,
-      toast, showShortcuts, showAbout, syncSwatches, markPenColor, syncThickness, syncFill, syncTextSize,
+      toast, showShortcuts, showAbout, syncSwatches, syncThickness, syncFill, syncTextSize,
+      syncTextFormat, setEditing,
       syncEraser,
       syncProtractorLearn,
     };

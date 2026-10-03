@@ -141,19 +141,21 @@
 
         <div class="tool-sep-v"></div>
 
-        <button class="tool pen-pick" data-pen="#000000" data-tip="Чёрная ручка" aria-label="Чёрная ручка">
+        <!-- три ручки — отдельные инструменты с фиксированным цветом -->
+        <button class="tool pen-pick" data-tool="penBlack" data-pen="#000000" data-tip="Чёрная ручка" aria-label="Чёрная ручка">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
         </button>
-        <button class="tool pen-pick" data-pen="#0000FF" data-tip="Синяя ручка" aria-label="Синяя ручка">
+        <button class="tool pen-pick" data-tool="penBlue" data-pen="#0000FF" data-tip="Синяя ручка" aria-label="Синяя ручка">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
         </button>
-        <button class="tool pen-pick" data-pen="#FF0000" data-tip="Красная ручка" aria-label="Красная ручка">
+        <button class="tool pen-pick" data-tool="penRed" data-pen="#FF0000" data-tip="Красная ручка" aria-label="Красная ручка">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
         </button>
       </nav>
     </div>
 
     <aside id="inspector">
+      <!-- палитра пера независима от ручек внизу: она показывает текущий цвет -->
       <div class="insp-block" data-for="pen text ruler protractor fill rect ellipse triangle solid line arrow">
         <div class="insp-title" id="inkTitle">Цвет чернил</div>
         <div class="swatches" id="swatchesInk"></div>
@@ -166,7 +168,7 @@
 
       
 
-      <div class="insp-block" data-for="pen highlighter rect ellipse triangle solid line arrow ruler protractor">
+      <div class="insp-block" data-for="pen penBlack penBlue penRed highlighter rect ellipse triangle solid line arrow ruler protractor">
         <div class="insp-title">Толщина</div>
         <div class="thickness" id="thickness">
           <button class="th th-dot" data-w="2"></button>
@@ -196,12 +198,30 @@
       </div>
 
       <div class="insp-block" data-for="text">
+        <div class="insp-title">Начертание</div>
+        <div class="fmt-row">
+          <button class="fmt-btn" data-fmt="bold" title="Полужирный (Ctrl+B)" aria-label="Полужирный" aria-pressed="false">Ж</button>
+          <button class="fmt-btn fmt-italic" data-fmt="italic" title="Курсив (Ctrl+I)" aria-label="Курсив" aria-pressed="false">К</button>
+          <button class="fmt-btn fmt-under" data-fmt="underline" title="Подчёркивание (Ctrl+U)" aria-label="Подчёркивание" aria-pressed="false">Ч</button>
+        </div>
+
+        <div class="insp-title">Гарнитура</div>
+        <select id="fontSelect" class="font-select" aria-label="Гарнитура текста"></select>
+
+        <div class="insp-title">Выравнивание</div>
+        <div class="align-grid text-aligns">
+          <button data-align="left" title="По левому краю (Ctrl+L)" aria-label="По левому краю"><svg viewBox="0 0 20 20"><path d="M3.4 3.4v13.2M6.6 6.4h7v3.2h-7zM6.6 12.4h4.4v3.2H6.6z"/></svg></button>
+          <button data-align="center" title="По центру (Ctrl+E)" aria-label="По центру"><svg viewBox="0 0 20 20"><path d="M10 3.4v13.2M6.6 6.4h6.8v3.2H6.6zM7.8 12.4h4.4v3.2H7.8z"/></svg></button>
+          <button data-align="right" title="По правому краю (Ctrl+R)" aria-label="По правому краю"><svg viewBox="0 0 20 20"><path d="M16.6 3.4v13.2M6.6 6.4h10v-3.2h-10zM9 12.4h7.6v3.2H9z"/></svg></button>
+        </div>
+
         <div class="insp-title">Размер текста</div>
         <div class="stepper">
           <button data-textsize="-2">A−</button>
           <span id="textSizeValue">28</span>
           <button data-textsize="2">A+</button>
         </div>
+        <p class="insp-hint">Начертание применяется к выделенному тексту, а без выделения — к новому. При открытой правке — к набранному.</p>
       </div>
 
       <div class="insp-block" data-for="ruler protractor">
@@ -325,6 +345,8 @@
             <dt>Ctrl + A</dt><dd>Выделить всё</dd>
             <dt>Ctrl + D</dt><dd>Дублировать</dd>
             <dt>Ctrl + Shift + L</dt><dd>Заблокировать выделенное</dd>
+            <dt>Ctrl + B / I / U</dt><dd>Полужирный / курсив / подчёркивание текста</dd>
+            <dt>Ctrl + L / E / R</dt><dd>Выровнять текст: слева / по центру / справа</dd>
             <dt>Esc</dt><dd>Снять выделение</dd>
             <dt>F2</dt><dd>Правка текста</dd>
           </dl>
@@ -381,7 +403,7 @@
 <script src="js/paint.js"></script>
  <script src="js/hit.js"></script>
  <script src="js/region.js"></script>
- <script src="js/persist.js"></script>
+  <script src="js/persist.js"></script>
 <script src="js/interactions.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/app.js"></script>

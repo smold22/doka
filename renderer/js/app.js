@@ -11,14 +11,30 @@
   const api = window.inkboard;
 
   /* Толщина инструмента: у кого-то своя, у остальных — общая с пером. */
+
+  /* Три ручки в нижней панели — отдельные инструменты с фиксированным цветом:
+     цвет палитры они не трогают, а толщину делят с пером. */
+  const PEN_TOOLS = { penBlack: '#000000', penBlue: '#0000FF', penRed: '#FF0000' };
+
+  /* цвет штриха инструмента: у ручек свой, у остальных — цвет палитры */
+  function colorFor(tool) {
+    return PEN_TOOLS[tool] || state.color;
+  }
+
+  /* ключ хранения толщины: ручкам отдаём слот пера */
+  function widthKey(tool) {
+    return PEN_TOOLS[tool] ? 'pen' : tool;
+  }
+
   function widthFor(tool) {
-    const own = state.widths[tool];
+    const own = state.widths[widthKey(tool)];
     return typeof own === 'number' && own > 0 ? own : state.width;
   }
 
   function setWidthFor(tool, value) {
-    if (Object.prototype.hasOwnProperty.call(DEFAULT_WIDTHS, tool)) {
-      state.widths[tool] = value;
+    const key = widthKey(tool);
+    if (Object.prototype.hasOwnProperty.call(DEFAULT_WIDTHS, key)) {
+      state.widths[key] = value;
     }
     state.width = value;
   }
@@ -38,6 +54,29 @@
   const ERASER_MIN = 8;
   const ERASER_MAX = 160;
 
+  /* переключаемые свойства начертания текста и подписи в истории отмены */
+  const FMT_KEYS = ['bold', 'italic', 'underline'];
+  const FMT_LABELS = {
+    bold: 'Полужирный',
+    italic: 'Курсив',
+    underline: 'Подчёркивание',
+  };
+
+  /* Настройки начертания из файла предыдущей версии могли лежать чем
+     угодно: приводим к нашим типам и проверяем гарнитуру. */
+  function loadTextFmt(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const family = M.FONT_FAMILIES.some((f) => f.id === src.family) ? src.family : 'ui';
+    const align = ['left', 'center', 'right'].includes(src.align) ? src.align : 'left';
+    return {
+      bold: src.bold === true,
+      italic: src.italic === true,
+      underline: src.underline === true,
+      family,
+      align,
+    };
+  }
+
   const state = {
   tool: prefs.tool || 'pen',
   color: prefs.color || '#000000',
@@ -52,6 +91,8 @@
     fill: prefs.fill || 'none',
     eraserWidth: Math.min(ERASER_MAX, Math.max(ERASER_MIN, Number(prefs.eraserWidth) || 24)),
     textSize: prefs.textSize || 28,
+    /* начертание нового текста и умолчания панели форматирования */
+    textFmt: loadTextFmt(prefs.textFmt),
     showGrid: prefs.showGrid !== false,
     showCells: prefs.showCells === true,
     selection: [],
@@ -97,6 +138,8 @@
 
     /* толщина активного инструмента; жесты и панель настроек берут её отсюда */
     widthFor,
+    /* цвет штриха инструмента: у трёх ручек фиксированный, у остальных — палитра */
+    colorFor,
     /* толщина меняется из панели: сразу пишем в настройки, иначе правка
        потерялась бы при закрытии доски */
     setWidthFor(tool, value) {
@@ -145,6 +188,7 @@
     onSelectionChanged() {
       ui.updateSelectionBar();
       ui.updateCounts();
+      ui.syncTextFormat();
       app.requestRender();
     },
 
@@ -170,6 +214,15 @@
     },
 
     applyColorToSelectionIfText(color) {
+      const draft = interactions.editingDraft();
+      if (draft) {
+        /* правка открыта: цвет ложим в черновик, он уедет в доску при коммите */
+        draft.color = color;
+        interactions.layoutEditor();
+        app.requestRender();
+        savePrefs();
+        return;
+      }
       const obj = singleSelected();
       if (obj) {
         store.patch([{ id: obj.id, before: { color: obj.color }, after: { color } }], 'Цвет');
@@ -179,19 +232,126 @@
     },
 
     changeTextSize(delta) {
-      const obj = singleSelected();
       state.textSize = G.clamp(state.textSize + delta, 8, 400);
       ui.syncTextSize();
-      if (obj && obj.type === 'text') {
-        store.patch(
-          [{ id: obj.id, before: { fontSize: obj.fontSize }, after: { fontSize: state.textSize } }],
-          'Размер текста'
-        );
-        app.markDirty();
-      } else if (interactions.isEditing() && obj === null) {
+      const draft = interactions.editingDraft();
+      if (draft) {
+        draft.fontSize = state.textSize;
         interactions.layoutEditor();
+        app.requestRender();
+      } else {
+        const obj = singleSelected();
+        if (obj && obj.type === 'text') {
+          store.patch(
+            [{ id: obj.id, before: { fontSize: obj.fontSize }, after: { fontSize: state.textSize } }],
+            'Размер текста'
+          );
+          app.markDirty();
+        }
       }
       savePrefs();
+    },
+
+    /* ---------------- форматирование текста ---------------- */
+
+    /* Куда применять формат: открытая правка важнее выделения,
+       выделенный текст — важнее умолчаний для нового текста. */
+    currentTextFormat() {
+      const draft = interactions.editingDraft();
+      if (draft) return draft;
+      const obj = singleSelected();
+      if (obj && obj.type === 'text') return obj;
+      return state.textFmt;
+    },
+
+    /* выделенные текстовые объекты; при правке — сам черновик */
+    textTargets() {
+      const draft = interactions.editingDraft();
+      if (draft) return [draft];
+      return state.selection
+        .map((id) => store.get(id))
+        .filter((o) => !!o && o.type === 'text');
+    },
+
+    /* Полужирный, курсив и подчёркивание переключаются вместе для всего
+       выделения; без выделения меняют только умолчания нового текста. */
+    toggleTextStyle(key) {
+      if (!FMT_KEYS.includes(key)) return;
+      const draft = interactions.editingDraft();
+      if (draft) {
+        draft[key] = !draft[key];
+        state.textFmt[key] = draft[key];
+        interactions.layoutEditor();
+        app.requestRender();
+      } else {
+        const targets = app.textTargets();
+        if (targets.length) {
+          const next = !targets[0][key];
+          store.patch(
+            targets.map((o) => ({ id: o.id, before: { [key]: !!o[key] }, after: { [key]: next } })),
+            FMT_LABELS[key]
+          );
+          state.textFmt[key] = next;
+          app.markDirty();
+        } else {
+          state.textFmt[key] = !state.textFmt[key];
+        }
+        app.requestRender();
+      }
+      ui.syncTextFormat();
+      savePrefs();
+    },
+
+    setTextAlign(align) {
+      if (!['left', 'center', 'right'].includes(align)) return;
+      const draft = interactions.editingDraft();
+      if (draft) {
+        draft.align = align;
+        interactions.layoutEditor();
+        app.requestRender();
+      } else {
+        const targets = app.textTargets();
+        if (targets.length) {
+          store.patch(
+            targets.map((o) => ({ id: o.id, before: { align: o.align || 'left' }, after: { align } })),
+            'Выравнивание текста'
+          );
+          app.markDirty();
+        }
+        state.textFmt.align = align;
+        app.requestRender();
+      }
+      ui.syncTextFormat();
+      savePrefs();
+    },
+
+    setTextFamily(family) {
+      if (!M.FONT_FAMILIES.some((f) => f.id === family)) return;
+      const draft = interactions.editingDraft();
+      if (draft) {
+        draft.family = family;
+        interactions.layoutEditor();
+        app.requestRender();
+      } else {
+        const targets = app.textTargets();
+        if (targets.length) {
+          store.patch(
+            targets.map((o) => ({ id: o.id, before: { family: o.family || 'ui' }, after: { family } })),
+            'Гарнитура'
+          );
+          app.markDirty();
+        }
+        state.textFmt.family = family;
+        app.requestRender();
+      }
+      ui.syncTextFormat();
+      savePrefs();
+    },
+
+    /* правка текста открыта или закрыта: панель показывает блок форматирования */
+    onEditingChanged() {
+      ui.setEditing(interactions.isEditing());
+      ui.updateSelectionBar();
     },
 
     /* Режим обучения: транспортир живёт на доске, пока его не выключили.
@@ -248,6 +408,7 @@
       view: state.view,
       selection: state.selection,
       preview: interactions.getPreview(),
+      editingId: interactions.editingId(),
       marquee: state.marquee,
       eraser: state.eraser,
       eraserRadius: state.eraserRadius,
@@ -492,6 +653,15 @@
     toggleCells: () => commands.setBackground(state.showCells && !state.showGrid ? 'none' : 'cells'),
     showShortcuts: () => ui.showShortcuts(true),
     about: () => openAbout(),
+    /* форматирование текста */
+    textBold: () => app.toggleTextStyle('bold'),
+    textItalic: () => app.toggleTextStyle('italic'),
+    textUnderline: () => app.toggleTextStyle('underline'),
+    alignTextLeft: () => app.setTextAlign('left'),
+    alignTextCenter: () => app.setTextAlign('center'),
+    alignTextRight: () => app.setTextAlign('right'),
+    /* аргумент — идентификатор гарнитуры из FONT_FAMILIES */
+    textFamily: (family) => app.setTextFamily(family),
   };
 
   /* ---------------- «О программе» и обновления ---------------- */
@@ -658,6 +828,7 @@
       fill: state.fill,
       eraserWidth: state.eraserWidth,
       textSize: state.textSize,
+      textFmt: state.textFmt,
       showGrid: state.showGrid,
       showCells: state.showCells,
       shapeVariant: state.shapeVariant,
@@ -680,6 +851,10 @@
   /* инструмент, к которому возвращаемся после переключения на руку */
   let lastDrawingTool = 'pen';
 
+  /* Ctrl+B/I/U — начертание текста, Ctrl+L/E/R — его выравнивание */
+  const TEXT_STYLE_KEYS = { b: 'textBold', i: 'textItalic', u: 'textUnderline' };
+  const TEXT_ALIGN_KEYS = { l: 'alignTextLeft', e: 'alignTextCenter', r: 'alignTextRight' };
+
   function onKeyDown(e) {
     const editing = interactions.isEditing();
     const mod = e.ctrlKey || e.metaKey;
@@ -693,6 +868,17 @@
     }
 
     if (editing) {
+      /* форматирование применяется прямо к открытой правке */
+      if (mod && TEXT_STYLE_KEYS[lower]) {
+        e.preventDefault();
+        commands[TEXT_STYLE_KEYS[lower]]();
+        return;
+      }
+      if (mod && !e.shiftKey && TEXT_ALIGN_KEYS[lower]) {
+        e.preventDefault();
+        commands[TEXT_ALIGN_KEYS[lower]]();
+        return;
+      }
       /* при правке текста пропускаем только файловые команды */
       if (mod && ['s', 'n', 'o', 'e'].includes(lower)) {
         e.preventDefault();
@@ -755,7 +941,40 @@
           if (e.shiftKey) {
             e.preventDefault();
             commands.exportPng();
+          } else {
+            e.preventDefault();
+            commands.alignTextCenter();
           }
+          return;
+        case 'b':
+          e.preventDefault();
+          commands.textBold();
+          return;
+        case 'i':
+          if (e.shiftKey) {
+            e.preventDefault();
+            commands.insertImage();
+          } else {
+            e.preventDefault();
+            commands.textItalic();
+          }
+          return;
+        case 'u':
+          e.preventDefault();
+          commands.textUnderline();
+          return;
+        case 'l':
+          if (e.shiftKey) {
+            e.preventDefault();
+            commands.toggleLock();
+          } else {
+            e.preventDefault();
+            commands.alignTextLeft();
+          }
+          return;
+        case 'r':
+          e.preventDefault();
+          commands.alignTextRight();
           return;
         case 'a':
           e.preventDefault();
@@ -764,12 +983,6 @@
         case 'd':
           e.preventDefault();
           commands.duplicate();
-          return;
-        case 'l':
-          if (e.shiftKey) {
-            e.preventDefault();
-            commands.toggleLock();
-          }
           return;
         case 'c':
           e.preventDefault();
@@ -782,12 +995,6 @@
         case 'v':
           /* вставку ловим событием paste: у него есть файлы и HTML,
              которых не видно через чтение буфера. Ctrl+V не гасим. */
-          return;
-        case 'i':
-          if (e.shiftKey) {
-            e.preventDefault();
-            commands.insertImage();
-          }
           return;
         case 'g':
           if (e.shiftKey) {
@@ -1011,25 +1218,12 @@
 
   /* ---------------- интерфейс: события ---------------- */
 
-  /* ручка в нижней панели: сразу выбирает перо и его цвет */
-  function pickPenColor(color) {
-    if (state.tool !== 'pen') interactions.setTool('pen');
-    state.color = color;
-    ui.syncSwatches();
-    ui.markPenColor(color);
-    savePrefs();
-    app.requestRender();
-  }
-
   function wireUI() {
-    /* кнопки-инструменты; у кнопок-действий (например «вставить картинку») data-tool нет */
+    /* кнопки-инструменты (в том числе ручки внизу); у кнопок-действий
+       например «вставить картинку» data-tool нет */
     for (const b of document.querySelectorAll('.tool')) {
       if (!b.dataset.tool) continue;
       b.addEventListener('click', () => interactions.setTool(b.dataset.tool));
-    }
-
-    for (const b of document.querySelectorAll('.pen-pick')) {
-      b.addEventListener('click', () => pickPenColor(b.dataset.pen));
     }
 
     for (const b of document.querySelectorAll('[data-cmd]')) {
@@ -1194,6 +1388,9 @@
       about: { state: updateView, render: renderUpdate, open: openAbout, check: checkForUpdates },
       widthFor,
       setWidthFor,
+      /* цвет штриха инструмента (у ручек — фиксированный) */
+      colorFor,
+      penTools: PEN_TOOLS,
       /* размер круга ластика задаёт слайдер в его панели */
       setEraserWidth: (v) => app.setEraserWidth(v),
       /* сохранение настроек (цвет пера, цвет заливки и т. д.) */

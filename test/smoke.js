@@ -3833,26 +3833,95 @@ t('равносторонний заполняет рамку по высоте 
     return color === 'rgb(0, 0, 255)';
   });
   t('ручки отделены вертикальной чертой', () => {
-    const sep = bar.querySelector('.tool-sep-v');
+    const sep = bar.querySelector('.tool-sep-v:last-of-type');
     if (!sep) return false;
     const cs = getComputedStyle(sep);
     return parseFloat(cs.width) === 1 && parseFloat(cs.height) >= 20;
   });
-  t('клик по красной ручке выбирает перо и цвет', () => {
+  /* три ручки — отдельные инструменты с фиксированным цветом */
+  t('каждая ручка — отдельный инструмент', () => {
+    const ids = ['penBlack', 'penBlue', 'penRed'];
+    const names = ['Чёрная ручка', 'Синяя ручка', 'Красная ручка'];
+    const ink = document.getElementById('swatchesInk').closest('.insp-block');
+    const thick = Array.from(document.querySelectorAll('.insp-block'))
+      .find((b) => (b.dataset.for || '').split(/\s+/).includes('penRed'));
+    const bad = [];
+    for (let i = 0; i < ids.length; i += 1) {
+      penPicks[i].click();
+      if (st.tool !== ids[i]) bad.push(`${ids[i]}: tool=${st.tool}`);
+      if (document.getElementById('stTool').textContent !== names[i]) bad.push(`${ids[i]}: статус`);
+      if (!document.getElementById('stage').classList.contains(`tool-${ids[i]}`)) bad.push(`${ids[i]}: stage`);
+      if (document.querySelector('#toolbar-bottom .pen-pick.active') !== penPicks[i]) bad.push(`${ids[i]}: не подсвечена`);
+      /* палитра для ручек не нужна, толщина — та же, что у пера */
+      if (ink.classList.contains('visible')) bad.push(`${ids[i]}: палитра видна`);
+      if (!thick || !thick.classList.contains('visible')) bad.push(`${ids[i]}: толщина скрыта`);
+    }
+    return bad.length === 0 ? true : bad.join(', ');
+  });
+  t('ручка рисует своим цветом, палитра не меняется', () => {
+    store.clear();
     itc.setTool('rect');
-    penPicks[2].click();
-    return st.tool === 'pen' && st.color === '#FF0000';
+    document.querySelector('#swatchesInk .swatch[data-color="#FF0000"]').click();
+    if (st.color !== '#FF0000') return 'палитра не применилась: ' + st.color;
+    penPicks[1].click(); /* синяя ручка */
+    fire('pointerdown', 200, 300);
+    fire('pointermove', 280, 340);
+    fire('pointerup', 280, 340);
+    const stroke = store.items[store.items.length - 1];
+    return store.items.length === 1 && stroke.type === 'stroke' && stroke.color === '#0000FF' &&
+      st.color === '#FF0000'
+      ? true : `штрихов=${store.items.length} цвет=${stroke && stroke.color} палитра=${st.color}`;
   });
-  t('активной остаётся одна ручка', () =>
-    document.querySelectorAll('#toolbar-bottom .pen-pick.active').length === 1);
-  t('палитра инспектора синхронизирована', () => {
+  t('«Перо» рисует цветом палитры и её показывает', () => {
+    itc.setTool('pen');
+    fire('pointerdown', 400, 300);
+    fire('pointermove', 460, 340);
+    fire('pointerup', 460, 340);
+    const stroke = store.items[store.items.length - 1];
+    const ink = document.getElementById('swatchesInk').closest('.insp-block');
+    return stroke.color === '#FF0000' && ink.classList.contains('visible')
+      ? true : `цвет=${stroke && stroke.color} палитра=${ink.classList.contains('visible')}`;
+  });
+  t('клик по ручке не двигает палитру — они развязаны', () => {
+    document.querySelector('#swatchesInk .swatch[data-color="#000000"]').click();
+    const before = document.querySelector('#swatchesInk .swatch.active').dataset.color;
+    penPicks[2].click(); /* красная: палитра остаётся на своём цвете */
     const active = document.querySelector('#swatchesInk .swatch.active');
-    return !!active && active.dataset.color === '#FF0000';
+    const after = active && active.dataset.color;
+    return before === '#000000' && after === '#000000' && st.color === '#000000'
+      ? true : `палитра ${before}→${after} цвет=${st.color}`;
   });
-  t('инструмент линейки не меняется от клика по ручке до конца', () => {
-    itc.setTool('ruler');
+  t('выбор ручки виден: подсвечена только нажатая', () => {
+    penPicks[1].click(); /* синяя */
+    const marked = Array.from(document.querySelectorAll('#toolbar-bottom .pen-pick.active'))
+      .map((b) => b.dataset.tool).join(',');
+    return marked === 'penBlue' && st.tool === 'penBlue'
+      ? true : `инструмент=${st.tool} подсвечена=${marked}`;
+  });
+  t('«Перо» и ручки — разные инструменты', () => {
     penPicks[0].click();
-    return st.tool === 'pen' && st.color === '#000000';
+    document.querySelector('#toolrail .tool[data-tool="pen"]').click();
+    const marked = document.querySelectorAll('#toolbar-bottom .pen-pick.active').length;
+    return st.tool === 'pen' && marked === 0 &&
+      document.getElementById('stTool').textContent === 'Перо'
+      ? true : `инструмент=${st.tool} подсвечено ручек=${marked}`;
+  });
+
+  /* палитра для пера вернулась и от ручек внизу не зависит */
+  t('при перо палитра «Цвет чернил» справа видна', () => {
+    itc.setTool('pen');
+    const block = document.getElementById('swatchesInk').closest('.insp-block');
+    return block.classList.contains('visible');
+  });
+  t('палитра видна и для текста и фигур, и для пера', () => {
+    const block = document.getElementById('swatchesInk').closest('.insp-block');
+    const bad = [];
+    for (const tool of ['pen', 'text', 'rect', 'fill', 'line']) {
+      itc.setTool(tool);
+      if (!block.classList.contains('visible')) bad.push(tool + ': скрыта');
+    }
+    itc.setTool('pen');
+    return bad.length === 0 ? true : bad.join(', ');
   });
 
   t('панель внизу по центру холста', () => {
@@ -4219,13 +4288,37 @@ const rBefore = { x: st.ruler.x, y: st.ruler.y };
   t('картинка попадает под прямоугольное выделение', () =>
     store.items.length === 1 &&
     IB.hit.objectsInRect(store, IB.model.boundsOf(store.items[0]), false).length === 1);
-  t('ластик удаляет картинку целиком', () => {
+  t('ластик не удаляет картинку', () => {
     itc.setTool('eraser');
+    st.eraserWidth = 40;
     const at = picCenter(store.get(pic.id));
-    gesture(at, { x: at.x + 6, y: at.y + 6 });
-    const gone = store.isEmpty();
-    app.commands.undo();
-    return gone && store.items.length === 1;
+    fire('pointerdown', at.x, at.y);
+    fire('pointerup', at.x, at.y);
+    const kept = store.items.length === 1 && !!store.get(pic.id);
+    const noStep = store.historyState().undoLabel !== 'Стирание';
+    return kept && noStep
+      ? true : `осталось=${store.items.length} шаг=${store.historyState().undoLabel}`;
+  });
+  /* картинка не мешает стирать: штрих под ней уходит, сама она цела */
+  t('ластик стирает штрих под картинкой, картинка остаётся', () => {
+    const at = picCenter(store.get(pic.id));
+    const w = G.toWorld(at, st.view);
+    const cross = IB.model.createStroke({
+      kind: 'pen', color: '#e81123', width: 6,
+      points: [{ x: w.x - 300, y: w.y }, { x: w.x + 300, y: w.y }],
+    });
+    const keep = store.items.slice();
+    store._insert([cross]);
+    itc.setTool('eraser');
+    st.eraserWidth = 30;
+    fire('pointerdown', at.x, at.y);
+    fire('pointerup', at.x, at.y);
+    const strokeGone = store.get(cross.id) === null;
+    const parts = store.items.filter((o) => o.type === 'stroke').length;
+    const picOk = !!store.get(pic.id) && store.items.length === parts + 1;
+    store._replace(keep); /* доска возвращается к одной картинке */
+    return strokeGone && picOk
+      ? true : `штрих=${strokeGone} обломков=${parts} картинка=${picOk}`;
   });
 
   t('картинка переживает сохранение и открытие', () => {
@@ -4509,6 +4602,192 @@ const rBefore = { x: st.ruler.x, y: st.ruler.y };
     return kept;
   });
   store.clear();
+
+  /* ---------- форматирование текста ---------- */
+
+  store.clear();
+  st.selection = [];
+  /* умолчания берём свои, а не из прошлого прогона */
+  st.textFmt = { bold: false, italic: false, underline: false, family: 'ui', align: 'left' };
+  itc.setTool('text');
+  ui.syncTextFormat();
+  const fmt = IB.model.createText({ x: 40, y: 60, text: 'Начертание', w: 240, fontSize: 24 });
+  store.insert([fmt]);
+  st.selection = [fmt.id];
+  ui.syncTextFormat();
+
+  t('новый текст: начертание по умолчанию выключено', () => {
+    const o = store.get(fmt.id);
+    return o.bold === false && o.italic === false && o.underline === false &&
+      o.family === 'ui' && o.align === 'left';
+  });
+  t('обычный шрифт — без 700 и курсива', () => {
+    const f = IB.model.objectFont(store.get(fmt.id));
+    return !f.includes('700') && !f.includes('italic') && f.includes('24px');
+  });
+
+  app.commands.textBold();
+  t('полужирный применяется к выделенному тексту', () => store.get(fmt.id).bold === true);
+  t('шрифт полужирного начинается с 700', () =>
+    /^700 24px /.test(IB.model.objectFont(store.get(fmt.id))));
+  app.commands.textItalic();
+  app.commands.textUnderline();
+  t('курсив и подчёркивание включены', () => {
+    const o = store.get(fmt.id);
+    return o.italic === true && o.underline === true;
+  });
+  t('шрифт курсива — italic и 700', () =>
+    /^italic 700 24px /.test(IB.model.objectFont(store.get(fmt.id))));
+  t('кнопки начертания подсвечены в панели', () =>
+    ['bold', 'italic', 'underline'].every((k) => {
+      const b = document.querySelector(`.fmt-btn[data-fmt="${k}"]`);
+      return b.classList.contains('active') && b.getAttribute('aria-pressed') === 'true';
+    }));
+
+  t('начертание отменяется по шагам и возвращается повтором', () => {
+    store.undo(); store.undo(); store.undo();
+    const o = store.get(fmt.id);
+    const plain = o.bold === false && o.italic === false && o.underline === false;
+    store.redo(); store.redo(); store.redo();
+    const back = store.get(fmt.id);
+    return plain && back.bold === true && back.italic === true && back.underline === true;
+  });
+
+  app.commands.alignTextCenter();
+  t('текст выровнен по центру', () => store.get(fmt.id).align === 'center');
+  t('кнопка выравнивания по центру активна', () =>
+    document.querySelector('[data-align="center"]').classList.contains('active'));
+  app.commands.alignTextRight();
+  t('текст выровнен по правому краю', () => store.get(fmt.id).align === 'right');
+  app.commands.alignTextLeft();
+  t('текст снова по левому краю', () => store.get(fmt.id).align === 'left');
+
+  app.commands.textFamily('mono');
+  t('гарнитура меняется на моноширинную', () =>
+    IB.model.objectFont(store.get(fmt.id)).includes('Consolas'));
+  t('список гарнитур совпадает с моделью', () => {
+    const ids = Array.from(document.getElementById('fontSelect').options).map((o) => o.value);
+    return ids.length === IB.model.FONT_FAMILIES.length && ids.includes('mono') &&
+      document.getElementById('fontSelect').value === 'mono';
+  });
+  app.commands.textFamily('ui');
+  t('гарнитура вернулась к системной', () =>
+    IB.model.objectFont(store.get(fmt.id)).includes('Segoe UI'));
+
+  t('подчёркивание меняет отрисовку текста', () => {
+    const obj = store.get(fmt.id);
+    const scene = {
+      store, view: st.view, selection: [], preview: null, marquee: null,
+      eraser: null, eraserTargets: null, showGrid: false, showCells: false, hoveredId: null,
+      singleSelection: false, showHandles: true, endpointHandles: null,
+    };
+    const surface = IB.paint.makeSurface(canvas);
+    surface.resize();
+    const saved = store.items.slice();
+    const frame = (on) => {
+      store.items.length = 0;
+      store.items.push(Object.assign({}, obj, { underline: on }));
+      IB.paint.render(surface, scene);
+      return canvas.toDataURL();
+    };
+    const plain = frame(false);
+    const under = frame(true);
+    store.items.length = 0;
+    for (const o of saved) store.items.push(o);
+    app.requestRender();
+    return plain !== under;
+  });
+
+  /* правка: формат сначала ложится в черновик, в доску — одним шагом */
+  store.clear();
+  st.selection = [];
+  const editing = IB.model.createText({ x: 10, y: 10, text: 'Правка', w: 200, fontSize: 20 });
+  store.insert([editing]);
+  itc.setTool('select');
+  itc.startTextEdit(store.get(editing.id));
+  const ta0 = document.querySelector('#overlay textarea');
+  t('правка открыта и блок форматирования виден при «Выделении»', () =>
+    itc.isEditing() && !!ta0 && !!itc.editingDraft() &&
+    document.querySelector('.insp-block[data-for="text"]').classList.contains('visible'));
+  t('поле ввода повторяет начертание объекта', () =>
+    ta0.style.fontWeight === '400' && ta0.style.fontStyle === 'normal' &&
+    ta0.style.textAlign === 'left');
+  app.commands.textItalic();
+  t('курсив уходит в черновик, а не в доску', () =>
+    itc.editingDraft().italic === true && store.get(editing.id).italic === false);
+  t('поле ввода стало курсивом', () => ta0.style.fontStyle === 'italic');
+  itc.commitTextEdit();
+  t('коммит пишет курсив в доску', () => store.get(editing.id).italic === true);
+  t('правка закрыта', () => !itc.isEditing() && !document.querySelector('#overlay textarea') &&
+    !document.querySelector('.insp-block[data-for="text"]').classList.contains('visible'));
+  store.undo();
+  t('отмена коммита возвращает текст без курсива', () => store.get(editing.id).italic === false);
+  store.clear();
+
+  /* переписывание текста: клик инструментом «Текст» по написанному тексту
+     открывает его правку, а не создаёт новый набор поверх старого */
+  const rewrite = IB.model.createText({ x: 40, y: 40, text: 'Старый текст', w: 240, fontSize: 24 });
+  store.insert([rewrite]);
+  itc.setTool('text');
+  const rewriteAt = G.toScreen({ x: rewrite.x + 30, y: rewrite.y + 8 }, st.view);
+  fire('pointerdown', rewriteAt.x, rewriteAt.y);
+  const rwTa = overlay.querySelector('textarea');
+  t('клик «Текстом» по написанному тексту открывает его правку', () =>
+    itc.isEditing() && !!rwTa && store.items.length === 1 && !!store.get(rewrite.id));
+  t('набор сразу переписывает старый текст — содержимое выделено целиком', () =>
+    !!rwTa && rwTa.value === 'Старый текст' && rwTa.selectionStart === 0 &&
+    rwTa.selectionEnd === rwTa.value.length);
+  t('правимый текст не рисуется под прозрачным полем ввода', () => {
+    const obj = store.get(rewrite.id);
+    const surface = IB.paint.makeSurface(canvas);
+    surface.resize();
+    const fakeStore = { items: [obj], get: () => null };
+    const base = {
+      store: fakeStore, view: st.view, selection: [], preview: null, marquee: null,
+      eraser: null, showGrid: false, showCells: false, hoveredId: null,
+      singleSelection: false, showHandles: false, endpointHandles: null,
+    };
+    IB.paint.render(surface, Object.assign({}, base, { editingId: obj.id }));
+    const hidden = canvas.toDataURL();
+    IB.paint.render(surface, Object.assign({}, base, { editingId: null }));
+    const shown = canvas.toDataURL();
+    app.requestRender();
+    return hidden !== shown;
+  });
+  itc.cancelTextEdit();
+  store.clear();
+
+  /* умолчания панели, когда ничего не выделено */
+  st.selection = [];
+  /* после выделения умолчания поменялись — возвращаем чистое состояние */
+  st.textFmt = { bold: false, italic: false, underline: false, family: 'ui', align: 'left' };
+  ui.syncTextFormat();
+  app.commands.textBold();
+  t('без выделения переключается умолчание нового текста', () =>
+    st.textFmt.bold === true &&
+    document.querySelector('.fmt-btn[data-fmt="bold"]').classList.contains('active'));
+  itc.insertText('Полужирный текст');
+  t('новый текст берёт умолчание панели', () =>
+    store.items.length === 1 && store.items[0].bold === true);
+  store.clear();
+  st.selection = [];
+  app.commands.textBold();
+  t('умолчание снято', () => st.textFmt.bold === false);
+
+  t('Ctrl+B с клавиатуры делает выделение полужирным', () => {
+    const o = IB.model.createText({ x: 0, y: 0, text: 'Клавиши', w: 200 });
+    store.insert([o]);
+    st.selection = [o.id];
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'b', ctrlKey: true, bubbles: true, cancelable: true,
+    }));
+    return store.get(o.id).bold === true;
+  });
+  store.clear();
+  st.selection = [];
+  st.textFmt = { bold: false, italic: false, underline: false, family: 'ui', align: 'left' };
+  itc.setTool('pen');
+  ui.syncTextFormat();
 
   /* размер пера и маркера влияет на сам штрих */
   const inkWidthOf = (tool, w) => {

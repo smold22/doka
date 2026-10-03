@@ -7,13 +7,35 @@
 
   const FONT_FAMILY = '"Segoe UI", system-ui, -apple-system, sans-serif';
 
+  /* Гарнитуры текста: в объекте хранится только идентификатор, а полный
+     стек живёт здесь — файл доски остаётся переносимым, а на другой
+     машине шрифт подставляется из того же семейства. */
+  const FONT_FAMILIES = [
+    { id: 'ui', label: 'Системный', stack: FONT_FAMILY },
+    { id: 'serif', label: 'Антиква', stack: 'Georgia, "Times New Roman", serif' },
+    { id: 'mono', label: 'Моноширинный', stack: '"Cascadia Mono", Consolas, "Courier New", monospace' },
+    { id: 'hand', label: 'Рукописный', stack: '"Segoe Print", "Comic Sans MS", cursive' },
+  ];
+
+  function familyStack(id) {
+    const fam = FONT_FAMILIES.find((f) => f.id === id);
+    return fam ? fam.stack : FONT_FAMILY;
+  }
+
   let idSeq = 1;
   function newId() {
     return `o${Date.now().toString(36)}${(idSeq++).toString(36)}`;
   }
 
+  /* Шрифт холста: курсив, полужирный и гарнитура собираются из свойств
+     объекта, поэтому метрики переноса и рисование всегда совпадают. */
   const FONT = {
-    ink: (size) => `${size}px ${FONT_FAMILY}`,
+    ink: (size, style) => {
+      const s = style || {};
+      const italic = s.italic ? 'italic ' : '';
+      const weight = s.bold ? '700 ' : '';
+      return `${italic}${weight}${size}px ${s.family ? familyStack(s.family) : FONT_FAMILY}`;
+    },
   };
 
   /* ---------- фабрики объектов ---------- */
@@ -67,6 +89,11 @@
         color: '#1b1f26',
         fontSize: 28,
         align: 'left',
+        /* начертание и гарнитура: см. FONT_FAMILIES */
+        bold: false,
+        italic: false,
+        underline: false,
+        family: 'ui',
         locked: false,
       },
       opts
@@ -94,7 +121,7 @@
   /* ---------- метрики и границы ---------- */
 
   function objectFont(obj) {
-    return FONT.ink(obj.fontSize);
+    return FONT.ink(obj.fontSize, obj);
   }
 
   function arrowHeadLength(width) {
@@ -412,7 +439,7 @@
   }
 
   IB.model = {
-    newId, FONT, FONT_FAMILY, isSupported,
+    newId, FONT, FONT_FAMILY, FONT_FAMILIES, familyStack, isSupported,
     createStroke, createShape, createText, createImage,
     boundsOf, translateObject, textBox, objectFont, arrowHeadLength, clone,
     createStore,

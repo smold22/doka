@@ -290,11 +290,23 @@ function roundRectPath(ctx, x, y, w, h, r) {
     ctx.save();
     ctx.fillStyle = obj.color;
     ctx.font = M.objectFont(obj);
-    ctx.textAlign = obj.align === 'center' ? 'center' : obj.align === 'right' ? 'right' : 'left';
-    const x = obj.align === 'center' ? obj.x + obj.w / 2 : obj.align === 'right' ? obj.x + box.w : obj.x;
+    const align = obj.align === 'center' ? 'center' : obj.align === 'right' ? 'right' : 'left';
+    ctx.textAlign = align;
+    /* якорь считается по фактической ширине box.w: так холст совпадает
+       с полем ввода, которое растянуто именно на box.w */
+    const x = align === 'center' ? obj.x + box.w / 2 : align === 'right' ? obj.x + box.w : obj.x;
+    /* подчёркивание рисуем сами: ctx.textDecoration в Canvas2D
+       реализован не везде, а линия под строкой должна быть всегда */
+    const thickness = Math.max(1, obj.fontSize / 16);
+    const drop = Math.max(1.5, obj.fontSize * 0.1);
     let y = box.y + box.ascent;
     for (const line of box.lines) {
       ctx.fillText(line, x, y);
+      if (obj.underline && line) {
+        const w = ctx.measureText(line).width;
+        const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+        ctx.fillRect(x0, y + drop, w, thickness);
+      }
       y += box.lineHeight;
     }
     ctx.restore();
@@ -621,7 +633,11 @@ function roundRectPath(ctx, x, y, w, h, r) {
     else if (showGrid) drawGrid(ctx, view, surface.width, surface.height);
 
     const selected = new Set(selection);
+    /* правимый текст не рисуем: его показывает прозрачное поле ввода,
+       иначе старый набор остался бы под новым */
+    const editingId = scene.editingId || null;
     for (const obj of store.items) {
+      if (obj.id === editingId) continue;
       if (selected.has(obj.id) && scene.dimSelected) continue;
       paintObject(ctx, obj);
     }
@@ -629,7 +645,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
       ctx.save();
       ctx.globalAlpha = 0.85;
       for (const obj of store.items) {
-        if (selected.has(obj.id)) paintObject(ctx, obj);
+        if (obj.id !== editingId && selected.has(obj.id)) paintObject(ctx, obj);
       }
       ctx.restore();
     }
