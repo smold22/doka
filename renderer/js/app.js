@@ -128,6 +128,11 @@
   const surface = Paint.makeSurface(document.getElementById('board'));
 
   let frame = null;
+  /* Изменение размера окна идёт кадрами: холст подгоняется и рисуется
+     в одном кадре, поэтому нет ни пустого кадра, ни растянутой картинки. */
+  let resizeFrame = null;
+  let resizeUntil = 0;
+  const RESIZE_SETTLE_MS = 180;
 
   /* ---------------- приложение ---------------- */
 
@@ -422,6 +427,32 @@
       showHandles: !interactions.isEditing(),
       endpointHandles: single && targets && targets.custom ? targets.custom.map((c) => c.pt) : null,
     });
+  }
+
+  /* Пока окно тянут, проверяем размер на каждом кадре, а не только по
+     событию resize: оно приходит реже кадров и с задержкой, из-за чего
+     холст отставал и дёргался. После последнего изменения ещё немного
+     следим за размером — на случай, если событие пришло раньше layout. */
+  function resizeTick() {
+    resizeFrame = null;
+    if (surface.resize()) {
+      ui.updateSelectionBar();
+      /* рисуем сразу в этом же кадре: requestRender отложил бы кадр
+         на следующий, и на один кадр показался бы пустой холст */
+      if (frame != null) {
+        cancelAnimationFrame(frame);
+        frame = null;
+      }
+      draw();
+    }
+    if (performance.now() < resizeUntil) {
+      resizeFrame = requestAnimationFrame(resizeTick);
+    }
+  }
+
+  function onWindowResize() {
+    resizeUntil = performance.now() + RESIZE_SETTLE_MS;
+    if (resizeFrame == null) resizeFrame = requestAnimationFrame(resizeTick);
   }
 
   /* ---------------- файлы ---------------- */
@@ -1338,12 +1369,7 @@
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('paste', onPaste);
-    window.addEventListener('resize', () => {
-      if (surface.resize()) {
-        app.requestRender();
-        ui.updateSelectionBar();
-      }
-    });
+    window.addEventListener('resize', onWindowResize);
     window.addEventListener('beforeunload', () => interactions.detach());
 
     const restore = Persist.readAutosave();

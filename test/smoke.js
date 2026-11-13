@@ -290,13 +290,20 @@ async function testSource() {
     return afterCancel === 1 && store.items.length === 2 &&
       store.items.every((o) => o.type === 'stroke');
   });
-  /* 10 инструментов: ластик и выделение перенесены в нижнюю панель */
-  t('10 инструментов в боковой панели', () => document.querySelectorAll('#toolrail .tool').length === 10);
+  /* 10 инструментов и вставка картинки в боковой панели */
+  t('в боковой панели 10 инструментов и кнопка вставки картинки', () =>
+    document.querySelectorAll('#toolrail .tool[data-tool]').length === 10 &&
+    !!document.querySelector('#toolrail .tool[data-cmd="insertImage"]'));
   t('ластик и выделение перенесены в нижнюю панель', () =>
     !!document.querySelector('#toolbar-bottom .tool[data-tool="eraser"]') &&
     !!document.querySelector('#toolbar-bottom .tool[data-tool="select"]') &&
     !document.querySelector('#toolrail .tool[data-tool="eraser"]') &&
     !document.querySelector('#toolrail .tool[data-tool="select"]'));
+  t('отмена и повтор перенесены в нижнюю панель', () =>
+    !!document.querySelector('#toolbar-bottom #btnUndo') &&
+    !!document.querySelector('#toolbar-bottom #btnRedo') &&
+    !document.querySelector('#topbar #btnUndo') &&
+    !document.querySelector('#topbar #btnRedo'));
   t('липких заметок не осталось', () =>
     !document.querySelector('#toolrail .tool[data-tool="sticky"]') &&
     !document.getElementById('swatchesSticky') &&
@@ -505,9 +512,9 @@ t('иконка пера показывает выбранный цвет чер
     itc.setTool('pen');
     return isRect && bg === 'rgb(225, 223, 221)' && other !== bg;
   });
-  /* группы: рисование и фигуры — два разделителя; выделение убрано вниз */
-  t('группы инструментов разделены двумя разделителями', () =>
-    document.querySelectorAll('#toolrail .tool-sep').length === 2);
+  /* группы: рисование, фигуры, объёмные фигуры и вставка картинки */
+  t('группы инструментов разделены тремя разделителями', () =>
+    document.querySelectorAll('#toolrail .tool-sep').length === 3);
 
   /* ---------------- сетка и клетка ---------------- */
 
@@ -609,6 +616,22 @@ t('иконка пера показывает выбранный цвет чер
     const small = at(0.05);
     const base = at(1);
     return small.px >= 14 && small.step % base.step === 0 && small.step > base.step;
+  });
+  t('клетка не прыгает размером между 5% и 6%', () => {
+    const levels = (scale) => IB.paint.cellLevels({ scale, pan: { x: 0, y: 0 } });
+    /* фактический размер видимой клетки: при высоком fineAlpha работает
+       мелкий слой, иначе — основной */
+    const visiblePx = (scale) => {
+      const l = levels(scale);
+      const step = l.fineAlpha >= 0.5 ? l.fineStep : l.step;
+      return step * scale;
+    };
+    /* 5% и 6% отличаются ровно на масштаб (1.2), а не на скачок шага */
+    if (Math.abs(visiblePx(0.05) - visiblePx(0.06) * (0.05 / 0.06)) > 1e-9) return false;
+    /* рядом с порогом мелкий слой почти полностью заменяет основной */
+    const above = levels(0.0549);
+    const below = levels(0.0546);
+    return below.fineStep === above.step && above.fineAlpha < 0.01 && below.fineAlpha > 0.99;
   });
   t('шаг клетки не перестраивается во время зума', () => {
     /* раньше шаг подстраивался под экран и «прыгал» на ходу анимации */
@@ -871,8 +894,8 @@ t('иконка пера показывает выбранный цвет чер
   t('отмена возвращает размер текста', () => Math.abs(store.get(note.id).fontSize - font0) < 0.001);
   store.redo();
 
-  /* ластик: контур режется по кругу, текст и заливки уходят целиком,
-     выделение не меняется */
+  /* ластик: режет только штрихи пера, ручек и маркера; фигуры, текст,
+     заливки и картинки остаются, выделение не меняется */
   itc.setTool('eraser');
   t('ластик не рисует рамки вокруг объектов', () => !('eraserTargets' in st));
 
@@ -1054,43 +1077,30 @@ t('иконка пера показывает выбранный цвет чер
   const victim = store.items.find((o) => o.type === 'shape'
     && (o.shape === 'ellipse' || o.shape === 'circle'));
   const selBefore = st.selection.slice();
-  const victimBounds = IB.model.boundsOf(victim);
+  const eraseHistory = store.historyState().undoLabel;
   /* кликаем по верхней точке контура: в центре касание не задевает контур */
   const vcx = (victim.x1 + victim.x2) / 2;
   const vp = toScreen({ x: vcx, y: victim.y1 });
   fire('pointerdown', vp.x, vp.y);
-  t('ластик сразу режет контур круга при нажатии', () => store.get(victim.id) === null);
   fire('pointermove', vp.x + 2, vp.y + 2);
   fire('pointerup', vp.x + 2, vp.y + 2);
-  t('от круга остались обломки контура внутри его же рамки', () => {
-    /* круг пустой: ластик коснулся верхней точки контура — сверху разрыв */
-    const arcs = store.items.filter((o) => o.type === 'stroke' &&
-      o.points.length > 1 &&
-      o.points.every((p) => p.x >= victimBounds.x - 1 && p.x <= victimBounds.x + victimBounds.w + 1 &&
-        p.y >= victimBounds.y - 1 && p.y <= victimBounds.y + victimBounds.h + 1));
-    return arcs.length >= 1 && store.items.length === beforeShapeErase + arcs.length - 1
-      ? true : `обломков=${arcs.length} было=${beforeShapeErase} стало=${store.items.length}`;
-  });
-  t('ластик стёр только контур круга', () => {
-    const others = store.items.filter((o) => o.type !== 'stroke');
-    return others.length >= 1 && others.every((o) => o.id !== victim.id);
-  });
+  t('ластик не трогает фигуру, нарисованную инструментом', () =>
+    store.get(victim.id) !== null && store.items.length === beforeShapeErase,
+    () => `фигура=${!!store.get(victim.id)} стало=${store.items.length}`);
+  t('ластик не оставляет обломков вместо фигуры', () =>
+    !store.items.some((o) => o.type === 'stroke' &&
+      o.points.every((p) => p.x >= victim.x1 - 1 && p.x <= victim.x2 + 1 &&
+        p.y >= victim.y1 - 1 && p.y <= victim.y2 + 1)));
+  t('ластик по фигуре не добавляет шаг истории', () =>
+    store.historyState().undoLabel === eraseHistory);
   t('ластик не меняет выделение', () => JSON.stringify(st.selection) === JSON.stringify(selBefore));
   itc.setTool('select');
 
-  /* история */
   const afterErase = store.items.length;
-  app.commands.undo();
-  t('отмена возвращает стёртый объект', () => store.get(victim.id) !== null);
-  app.commands.redo();
-  t('повтор снова удаляет', () => store.get(victim.id) === null && store.items.length === afterErase);
-  app.commands.undo();
-  t('цепочка истории согласована', () => store.items.length === beforeShapeErase);
-
   while (!store.isEmpty() && store.historyState().canUndo) app.commands.undo();
   t('полная отмена очищает доску', () => store.isEmpty());
   while (store.historyState().canRedo) app.commands.redo();
-  t('полный повтор возвращает доску к состоянию после стирания', () =>
+  t('полный повтор возвращает доску к текущему состоянию', () =>
     store.items.length === afterErase
       ? true
       : `стало ${store.items.length}, ожидалось ${afterErase}; типы=${store.items.map((o) => o.type).join(',')}; undo=${JSON.stringify(store.historyState())}`);
@@ -1402,6 +1412,8 @@ t('иконка пера показывает выбранный цвет чер
   const wheel = (opts) => canvas.dispatchEvent(new WheelEvent('wheel', {
     clientX: 640, clientY: 400, bubbles: true, cancelable: true, ...opts,
   }));
+  /* колесо меняет масштаб шагом 5% за стандартное деление (100 px) */
+  const wheelTarget = (scale, delta) => scale * Math.pow(1.05, -delta / 100);
   /* ждём, пока зум доедет до цели (или пройдёт 1.5 с) */
   const settle = async () => {
     for (let i = 0; i < 90; i++) {
@@ -1435,6 +1447,15 @@ t('иконка пера показывает выбранный цвет чер
     return st.view.scale < s3;
   });
 
+  await t('одно деление колеса меняет масштаб на 5%', async () => {
+    app.commands.zoomReset();
+    await settle();
+    const before = st.view.scale;
+    wheel({ deltaY: -100 });
+    await settle();
+    return Math.abs(st.view.scale - before * 1.05) < 1e-6;
+  });
+
   await t('колёсико по строкам тоже масштабирует', async () => {
     const s4 = st.view.scale;
     wheel({ deltaY: -240, deltaMode: 1 });
@@ -1457,7 +1478,7 @@ t('иконка пера показывает выбранный цвет чер
     const midway = st.view.scale;
     await settle();
     const after = st.view.scale;
-    const target = before * Math.exp(0.6);
+    const target = wheelTarget(before, -60);
     return moving && midway > before && midway < target - 1e-6 && after > midway &&
       Math.abs(after - target) < 1e-6;
   });
@@ -1477,7 +1498,7 @@ t('иконка пера показывает выбранный цвет чер
       samples.push(st.view.scale);
     }
     await settle();
-    const target = before * Math.exp(0.9);
+    const target = wheelTarget(before, -90);
     /* каждый замер не меньше предыдущего: откатов назад не бывает */
     const mono = samples.every((s, i) => i === 0 || s >= samples[i - 1] - 1e-9);
     /* масштаб двигался не один раз, а на каждом замере */
@@ -1489,21 +1510,20 @@ t('иконка пера показывает выбранный цвет чер
   });
 
   await t('зум одного жеста не дублируется кадрами', async () => {
-    /* считаем, сколько раз доска перерисовалась за один щелчок: шагов должно
-       быть столько, сколько кадров анимации, а не в разы больше */
+    /* считаем, сколько раз анимация запросила кадр за один щелчок: очередь
+       должна быть одна, а не размножаться с каждым шагом */
     app.commands.zoomReset();
     await settle();
     const real = window.requestAnimationFrame;
     const realTimeout = window.setTimeout;
     let frames = 0;
-    window.requestAnimationFrame = (fn) => real.call(window, (...a) => { frames += 1; return fn(...a); });
+    window.requestAnimationFrame = (fn) => { frames += 1; return real.call(window, fn); };
     window.setTimeout = (fn, ms, ...a) => realTimeout.call(window, fn, ms, ...a);
     wheel({ deltaY: -120 });
     await settle();
     window.requestAnimationFrame = real;
     window.setTimeout = realTimeout;
-    /* анимация длится ~300 мс: это примерно 18 кадров при 60 Гц,
-       40 — уже перебор, значит очередь кадров размножилась */
+    /* даже длинная анимация — это десятки кадров, 40 — уже перебор */
     return frames >= 2 && frames <= 40 ? true : `кадров: ${frames}`;
   });
 
@@ -1522,7 +1542,7 @@ t('иконка пера показывает выбранный цвет чер
   });
 
   await t('зум доезжает ровно до целевого масштаба', async () => {
-    const target = st.view.scale * Math.exp(-2.4);
+    const target = wheelTarget(st.view.scale, 240);
     wheel({ deltaY: 240 });
     await settle();
     return Math.abs(st.view.scale - target) < 1e-6;
@@ -1549,8 +1569,8 @@ t('иконка пера показывает выбранный цвет чер
     const before = st.view.scale;
     for (let i = 0; i < 5; i++) wheel({ deltaY: -40 });
     await settle();
-    /* пять щелчков по 0.4 дают ровно суммарный зум exp(2) */
-    return Math.abs(st.view.scale - before * Math.exp(2)) < 1e-6;
+    /* пять щелчков по 0.4 деления дают ровно 2 деления, то есть 1.05² */
+    return Math.abs(st.view.scale - wheelTarget(before, -200)) < 1e-6;
   });
 
   await t('Ctrl + плюс и минус тоже едут плавно', async () => {
@@ -1619,6 +1639,41 @@ t('иконка пера показывает выбранный цвет чер
   /* Проверки ниже сверяют мировые координаты с точностью до долей пикселя,
      поэтому вид должен быть чистым: после тестов зума остаётся панорама. */
   app.commands.resetView();
+
+  /* Мелкий штрих пером не должен оказываться выделенным: рамка с ручками
+     закрывает точку и мешает рисовать рядом. */
+  itc.setTool('pen');
+  fire('pointerdown', 200, 200);
+  fire('pointerup', 200, 200);
+  t('точка пером не выделяется', () => {
+    const dot = store.items[0];
+    return store.items.length === 1 && dot && dot.type === 'stroke' && st.selection.length === 0
+      ? true
+      : `items=${store.items.length} sel=${st.selection.join(',')}`;
+  });
+  const dotId = store.items[0] && store.items[0].id;
+  const fireMenu = (x, y) => {
+    const r = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: r.left + x, clientY: r.top + y,
+    }));
+  };
+  fireMenu(200, 200);
+  t('правый клик пером не выделяет свежую точку', () => st.selection.length === 0,
+    () => `sel=${st.selection.join(',')} tool=${st.tool}`);
+  st.selection = [dotId];
+  fire('pointerdown', 240, 240);
+  fire('pointerup', 240, 240);
+  t('перо начинает рисовать без рамки выделения', () => st.selection.length === 0);
+  itc.setTool('select');
+  fireMenu(200, 200);
+  t('правый клик выделением по-прежнему выделяет точку', () =>
+    st.selection.length === 1 && st.selection[0] === dotId,
+    () => `sel=${st.selection.join(',')} dot=${dotId} items=${store.items.length}`);
+  itc.setTool('pen');
+  t('переключение на перо снимает выделение', () => st.selection.length === 0);
+
+  store.clear();
   itc.setTool('rect');
   const rectBtnEl = document.querySelector('.tool[data-tool="rect"]');
   const shapeMenu = document.getElementById('shapeMenu');
@@ -3622,8 +3677,9 @@ t('равносторонний заполняет рамку по высоте 
   store.clear();
   itc.setTool('ellipse');
 
-  /* ---------------- стирание: контур режется по кругу ----------------
-      то, что внутри круга ластика, исчезает; снаружи штрих остаётся */
+  /* ---------------- стирание: режется только свободный штрих ----------------
+      ластик трогает только штрихи пера, ручек и маркера; фигуры, текст
+      и прочие объекты остаются на месте */
 
   store.clear();
   itc.setTool('eraser');
@@ -3713,7 +3769,7 @@ t('равносторонний заполняет рамку по высоте 
     return store.get(edge.id) === null && left.length === 1 && minX > -400
       ? true : `обломков=${left.length} minX=${minX}`;
   });
-  t('за один жест текст уходит целиком, а штрих и контур режутся', () => {
+  t('за один жест ластик режет штрих, но не трогает текст и фигуру', () => {
     store.clear();
     const a = IB.model.createStroke({
       kind: 'pen', color: '#e81123', width: 6,
@@ -3726,13 +3782,12 @@ t('равносторонний заполняет рамку по высоте 
     const sp = toScreen({ x: 150, y: 500 });
     fire('pointerdown', sp.x, sp.y);
     fire('pointerup', sp.x, sp.y);
-    /* текст не режется — он уходит целиком; штрих разрезан надвое,
-       от контура круга остаются обломки-штрихи */
-    const textGone = store.get(b.id) === null;
-    const shapeGone = store.get(c.id) === null;
+    /* штрих разрезан надвое, текст и фигура остались нетронутыми */
+    const textKept = store.get(b.id) !== null;
+    const shapeKept = store.get(c.id) !== null;
     const strokes = store.items.filter((o) => o.type === 'stroke');
-    return textGone && shapeGone && strokes.length >= 3
-      ? true : `text=${textGone} shape=${shapeGone} strokes=${strokes.length}`;
+    return textKept && shapeKept && strokes.length === 2 && store.get(a.id) === null
+      ? true : `text=${textKept} shape=${shapeKept} strokes=${strokes.length}`;
   });
   t('объект вне области ластика остаётся на месте', () => {
     store.clear();
@@ -4171,10 +4226,11 @@ const rBefore = { x: st.ruler.x, y: st.ruler.y };
   /* ---------------- рука: перетаскивание холста ---------------- */
 
   const panBtn = bar.querySelector('.tool[data-tool="pan"]');
-  const imgBtn = bar.querySelector('#toolbar-bottom .tool[data-cmd="insertImage"]');
+  const imgBtn = document.querySelector('#toolrail .tool[data-cmd="insertImage"]');
   t('внизу есть кнопка руки', () => !!panBtn && panBtn.dataset.tip.indexOf('Рука') === 0);
-  t('внизу есть кнопка вставки картинки', () =>
-    !!imgBtn && imgBtn.dataset.tip.indexOf('картинку') > 0 && !!imgBtn.querySelector('svg'));
+  t('кнопка вставки картинки перенесена в боковую панель', () =>
+    !!imgBtn && !document.querySelector('#toolbar-bottom .tool[data-cmd="insertImage"]') &&
+    imgBtn.dataset.tip.indexOf('картинку') > 0 && !!imgBtn.querySelector('svg'));
   t('иконки руки и картинки — линейные svg 20×20', () =>
     [panBtn, imgBtn].every((b) => {
       const s = b.querySelector('svg');

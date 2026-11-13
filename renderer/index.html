@@ -37,15 +37,6 @@
 
       <div class="tb-sep"></div>
 
-      <button class="icon-btn" id="btnUndo" data-cmd="undo" title="Отменить (Ctrl+Z)">
-        <svg viewBox="0 0 24 24"><path d="M9 7H5V3"/><path d="M5.5 7.5A8 8 0 1 1 4 14" class="thin"/></svg>
-      </button>
-      <button class="icon-btn" id="btnRedo" data-cmd="redo" title="Повторить (Ctrl+Y)">
-        <svg viewBox="0 0 24 24"><path d="M15 7h4V3"/><path d="M18.5 7.5A8 8 0 1 0 20 14" class="thin"/></svg>
-      </button>
-
-      <div class="tb-sep"></div>
-
       <div class="zoom-group">
         <button class="icon-btn" id="btnZoomOut" data-cmd="zoomOut" title="Уменьшить (Ctrl+-)"><svg viewBox="0 0 24 24"><path d="M6 12h12" class="thin"/></svg></button>
         <button class="zoom-value" id="btnZoomReset" data-cmd="zoomReset" title="Масштаб 100% (Ctrl+0)">100%</button>
@@ -99,6 +90,12 @@
       <button class="tool" data-tool="solid" data-tip="Объёмная фигура (C) · ПКМ — другие фигуры" aria-label="Объёмная фигура">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.6 17 6.5v8.3L10 18.7 3 14.8V6.5zM3 6.5l7 3.9 7-3.9M10 10.4v8.3"/></svg>
       </button>
+
+      <div class="tool-sep"></div>
+
+      <button class="tool" data-cmd="insertImage" data-tip="Вставить картинку (Ctrl+Shift+I)" aria-label="Вставить картинку">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.6" y="4.2" width="14.8" height="11.6" rx="1.6"/><path d="M3.2 13.4 7.6 9.2l2.4 2.3 2-1.9 4.6 3.8"/><circle cx="13.6" cy="7.8" r="1.2"/></svg>
+      </button>
     </nav>
 
     <div id="stage">
@@ -135,9 +132,6 @@
         <button class="tool" data-tool="pan" data-tip="Рука — перетаскивать холст (F)" aria-label="Рука">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.2 9.6V5.2a1.1 1.1 0 0 1 2.2 0v3.7"/><path d="M9.4 8.9V4.4a1.1 1.1 0 0 1 2.2 0v4.5"/><path d="M11.6 9V5.9a1.1 1.1 0 0 1 2.2 0v4.4"/><path d="M13.8 10.2V8.4a1.1 1.1 0 0 1 2.2 0v3.9c0 2.4-1.9 4.3-4.3 4.3h-1.2c-1.4 0-2.6-.7-3.4-1.8l-2.1-3a1.1 1.1 0 0 1 1.7-1.4l1.5 1.7V9.4"/></svg>
         </button>
-        <button class="tool" data-cmd="insertImage" data-tip="Вставить картинку (Ctrl+Shift+I)" aria-label="Вставить картинку">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.6" y="4.2" width="14.8" height="11.6" rx="1.6"/><path d="M3.2 13.4 7.6 9.2l2.4 2.3 2-1.9 4.6 3.8"/><circle cx="13.6" cy="7.8" r="1.2"/></svg>
-        </button>
 
         <div class="tool-sep-v"></div>
 
@@ -150,6 +144,15 @@
         </button>
         <button class="tool pen-pick" data-tool="penRed" data-pen="#FF0000" data-tip="Красная ручка" aria-label="Красная ручка">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.4 15.6 5.5 12l7.2-7.2a1.7 1.7 0 0 1 2.4 0l.1.1a1.7 1.7 0 0 1 0 2.4L8 14.5z"/><path d="M3.2 17.1h4.4"/><path d="M12.3 6.3l2.4 2.4"/></svg>
+        </button>
+
+        <div class="tool-sep-v"></div>
+
+        <button class="tool" id="btnUndo" data-cmd="undo" data-tip="Отменить (Ctrl+Z)" aria-label="Отменить">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7H5V3"/><path d="M5.5 7.5A8 8 0 1 1 4 14" class="thin"/></svg>
+        </button>
+        <button class="tool" id="btnRedo" data-cmd="redo" data-tip="Повторить (Ctrl+Y)" aria-label="Повторить">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7h4V3"/><path d="M18.5 7.5A8 8 0 1 0 20 14" class="thin"/></svg>
         </button>
       </nav>
     </div>

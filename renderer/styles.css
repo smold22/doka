@@ -212,6 +212,8 @@ svg .fill { fill: currentColor; }
 .tool:hover { background: #f3f2f1; }
 .tool:active { background: #edebe9; }
 .tool.active { background: #e1dfdd; }
+.tool:disabled { opacity: 0.32; cursor: default; }
+.tool:disabled:hover { background: transparent; }
 /* иконки пера и маркера в левой панели всегда показывают выбранный цвет чернил,
    а не только когда инструмент активен; у заливки свой цвет — она красится
    в свой цвет и не зависит от цвета пера */

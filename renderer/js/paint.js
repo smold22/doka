@@ -53,10 +53,19 @@
   const CELL_BASE = 32;
   const CELL_MIN_PX = 14;
 
+  /* Клетка не переключается между уровнями рывком: рядом с порогом
+     читаемости рисуются оба уровня, и мелкий плавно проявляется. Так шаг
+     может удвоиться, но картинка на экране остаётся непрерывной. */
+  function cellLevels(view) {
+    const level = Math.max(0, Math.ceil(Math.log2(CELL_MIN_PX / (CELL_BASE * view.scale))));
+    const step = CELL_BASE * Math.pow(2, level);
+    const px = step * view.scale;
+    const fineAlpha = level > 0 ? Math.min(1, Math.max(0, px / CELL_MIN_PX - 1)) : 0;
+    return { step, fineStep: step / 2, fineAlpha };
+  }
+
   function cellStep(view) {
-    let step = CELL_BASE;
-    while (step * view.scale < CELL_MIN_PX) step *= 2;
-    return step;
+    return cellLevels(view).step;
   }
 
   function drawGrid(ctx, view, width, height) {
@@ -82,8 +91,7 @@
 
   const CELL_COLOR = '#d7dce4';
 
-  function drawCells(ctx, view, width, height) {
-    const step = cellStep(view);
+  function strokeCellLines(ctx, view, width, height, step) {
     const half = 0.5 / view.scale;
     const a = G.toWorld({ x: 0, y: 0 }, view);
     const b = G.toWorld({ x: width, y: height }, view);
@@ -92,7 +100,6 @@
     const x1 = b.x + step;
     const y1 = b.y + step;
 
-    ctx.save();
     ctx.beginPath();
     for (let x = x0; x <= x1; x += step) {
       ctx.moveTo(x + half, y0);
@@ -102,9 +109,20 @@
       ctx.moveTo(x0, y + half);
       ctx.lineTo(x1, y + half);
     }
+    ctx.stroke();
+  }
+
+  function drawCells(ctx, view, width, height) {
+    const { step, fineStep, fineAlpha } = cellLevels(view);
+
+    ctx.save();
     ctx.strokeStyle = CELL_COLOR;
     ctx.lineWidth = 1 / view.scale;
-    ctx.stroke();
+    strokeCellLines(ctx, view, width, height, step);
+    if (fineAlpha > 0) {
+      ctx.globalAlpha = fineAlpha;
+      strokeCellLines(ctx, view, width, height, fineStep);
+    }
     ctx.restore();
   }
 
@@ -751,7 +769,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
 
   IB.paint = {
     makeSurface, applyView, render, renderToCanvas, paintObject, drawSelectionChrome,
-    drawRubberBand, gridStep, cellStep, drawCells, roundRectPath, SELECT_COLOR,
+    drawRubberBand, gridStep, cellStep, cellLevels, drawCells, roundRectPath, SELECT_COLOR,
     setImageReadyHandler, imagesReady,
   };
 })(window);

@@ -538,8 +538,8 @@
     function updateHistory(history) {
       el.btnUndo.disabled = !history.canUndo;
       el.btnRedo.disabled = !history.canRedo;
-      el.btnUndo.title = history.canUndo ? `Отменить: ${history.undoLabel}` : 'Отменить (Ctrl+Z)';
-      el.btnRedo.title = history.canRedo ? `Повторить: ${history.redoLabel}` : 'Повторить (Ctrl+Y)';
+      el.btnUndo.dataset.tip = history.canUndo ? `Отменить: ${history.undoLabel}` : 'Отменить (Ctrl+Z)';
+      el.btnRedo.dataset.tip = history.canRedo ? `Повторить: ${history.redoLabel}` : 'Повторить (Ctrl+Y)';
     }
 
     function updateCounts() {

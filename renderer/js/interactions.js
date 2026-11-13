@@ -908,6 +908,10 @@
         case 'penBlue':
         case 'penRed':
         case 'highlighter': {
+          /* рамка выделения и подсветка наведения не должны висеть поверх
+             свежего маленького штриха, пока его рисуют */
+          deselect();
+          state.hoveredId = null;
           const highlighter = state.tool === 'highlighter';
           const stroke = M.createStroke({
             kind: highlighter ? 'highlighter' : 'pen',
@@ -955,6 +959,8 @@
         case 'ellipse':
         case 'triangle': {
           /* кнопки «Прямоугольник», «Круг» и «Треугольник» рисуют выбранную фигуру */
+          deselect();
+          state.hoveredId = null;
           const kind = state.tool === 'rect' ? state.shapeVariant
             : state.tool === 'ellipse' ? state.ellipseVariant
               : state.tool === 'triangle' ? state.triangleVariant
@@ -972,6 +978,8 @@
         }
         case 'solid': {
           /* кнопка «Объёмные фигуры» рисует выбранную пространственную фигуру */
+          deselect();
+          state.hoveredId = null;
           const shape = M.createShape(state.solidVariant, {
             color: state.color,
             width: state.width,
@@ -1164,10 +1172,9 @@
       }
     }
 
-    /* Стирание при движении: ластик режет контур по своему кругу — внутри
-       круга контур исчезает, снаружи остаётся. Текст и залитые фигуры
-       удаляются целиком, как только задеты; картинки ластик не трогает.
-       Выделение не меняется. */
+    /* Стирание при движении: ластик режет по своему кругу только свободные
+       штрихи пера, ручек и маркера. Фигуры, текст, заливки и картинки
+       остаются нетронутыми. Выделение не меняется. */
     function eraseFrom(base, circles) {
       if (!circles || !circles.length) return { items: base, cut: false };
       const touched = new Set();
@@ -1197,17 +1204,9 @@
     /* Что ластик делает с объектом: null — удалить целиком, 'keep' — контур
        цел или объект трогать нельзя, массив — заменить обломками. */
     function eraserPieces(o, circles) {
-      if (o.type === 'stroke') return cutStroke(o, circles);
-      if (o.type === 'shape') {
-        if (o.shape === 'line' || o.shape === 'arrow') return cutLine(o, circles);
-        /* залитая и объёмная фигура уходят целиком при касании */
-        if ((o.fill && o.fill !== 'none') || G.isSolidShape(o.shape)) return null;
-        return cutShapeOutline(o, circles);
-      }
-      /* картинка не стирается: её вытирают только выделением и Delete */
-      if (o.type === 'image') return 'keep';
-      /* текст удаляется целиком при касании */
-      return null;
+      /* ластик трогает только нарисованное пером, ручками и маркером */
+      if (o.type !== 'stroke') return 'keep';
+      return cutStroke(o, circles);
     }
 
     function cutStroke(o, circles) {
@@ -1220,38 +1219,6 @@
         c.points = pts;
         return c;
       });
-    }
-
-    function cutLine(o, circles) {
-      const pts = [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }];
-      const pieces = cutPieces(pts, circles);
-      if (pieces === 'keep') return 'keep';
-      if (!pieces.length) return null;
-      const tip = pts[1];
-      return pieces.map((p) => {
-        const c = M.clone(o);
-        c.id = M.newId();
-        c.x1 = p[0].x;
-        c.y1 = p[0].y;
-        c.x2 = p[p.length - 1].x;
-        c.y2 = p[p.length - 1].y;
-        /* наконечник остаётся на уцелевшем конце; обломок без него — линия */
-        if (o.shape === 'arrow' &&
-            (c.x2 !== tip.x || c.y2 !== tip.y)) c.shape = 'line';
-        return c;
-      });
-    }
-
-    function cutShapeOutline(o, circles) {
-      const pts = outlinePoints(o);
-      if (!pts || pts.length < 2) return null;
-      const pieces = cutPieces(pts, circles);
-      if (pieces === 'keep') return 'keep';
-      if (!pieces.length) return null;
-      /* обломки контура становятся штрихами: только их и можно резать */
-      return pieces.map((p) => M.createStroke({
-        kind: 'pen', color: o.color, width: o.width, points: p,
-      }));
     }
 
     /* 'keep' — ломаная не задета, иначе куски снаружи всех кругов */
@@ -1331,62 +1298,6 @@
       }
       flush();
       return pieces;
-    }
-
-    /* контур объекта как замкнутая ломаная; null — резать нечего */
-    function outlinePoints(o) {
-      if (o.type !== 'shape') return null;
-      const a = { x: o.x1, y: o.y1 };
-      const b = { x: o.x2, y: o.y2 };
-      if (o.shape === 'line' || o.shape === 'arrow') return [a, b];
-      if (o.shape === 'polygon' && Array.isArray(o.points) && o.points.length >= 3) {
-        return o.points;
-      }
-      if (o.shape === 'ellipse' || o.shape === 'circle') {
-        return ellipseOutline(G.rectFromPoints(a, b));
-      }
-      if (o.shape === 'rect') return roundRectOutline(G.rectFromPoints(a, b));
-      if (G.isPolyShape(o.shape)) return G.shapePoints(o.shape, a, b);
-      return null;
-    }
-
-    /* контур эллипса такими же точками, как его рисует холст; путь замкнут */
-    function ellipseOutline(r) {
-      const cx = r.x + r.w / 2;
-      const cy = r.y + r.h / 2;
-      const rx = Math.abs(r.w / 2);
-      const ry = Math.abs(r.h / 2);
-      const pts = [];
-      for (let i = 0; i < 72; i += 1) {
-        const a = (i / 72) * Math.PI * 2;
-        pts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) });
-      }
-      pts.push({ x: pts[0].x, y: pts[0].y });
-      return pts;
-    }
-
-    /* прямоугольник со скруглёнными углами — как roundRectPath в paintShape */
-    function roundRectOutline(r) {
-      const w = Math.abs(r.w);
-      const h = Math.abs(r.h);
-      const rad = Math.min(8, w / 6, h / 6);
-      const x0 = r.x;
-      const y0 = r.y;
-      const x1 = r.x + w;
-      const y1 = r.y + h;
-      const pts = [];
-      const arc = (cx, cy, from) => {
-        for (let i = 0; i <= 6; i += 1) {
-          const ang = from + (i / 6) * (Math.PI / 2);
-          pts.push({ x: cx + rad * Math.cos(ang), y: cy + rad * Math.sin(ang) });
-        }
-      };
-      arc(x0 + rad, y0 + rad, Math.PI);
-      arc(x1 - rad, y0 + rad, Math.PI * 1.5);
-      arc(x1 - rad, y1 - rad, 0);
-      arc(x0 + rad, y1 - rad, Math.PI * 0.5);
-      pts.push({ x: pts[0].x, y: pts[0].y });
-      return pts;
     }
 
     /* применяем стирание к доске прямо сейчас, без записи в историю */
@@ -1754,10 +1665,14 @@
     /* Накопленный шаг колеса: пока зум едет, новые щелчки складываются с ним,
        иначе быстрая прокрутка «теряла» бы шаг. */
     const wheelZoom = { delta: 0, at: null };
+    /* одно стандартное деление колеса — 5% масштаба; единицы события
+       приводим к «пикселям прокрутки», где 100 = один щелчок */
+    const WHEEL_STEP = 1.05;
+    const WHEEL_NOTCH_PX = 100;
 
     function applyWheelZoom() {
       if (!wheelZoom.at || wheelZoom.delta === 0) return;
-      const factor = Math.exp(-wheelZoom.delta * 0.01);
+      const factor = Math.pow(WHEEL_STEP, -wheelZoom.delta / WHEEL_NOTCH_PX);
       /* отсчёт от цели анимации, а не от текущего кадра: пять быстрых
          щелчков подряд дают один большой зум, а не пять полущёлков */
       zoomTo(wheelZoom.at, zoomTarget() * factor);
@@ -1812,8 +1727,15 @@
       const screen = pointerPos(e);
       const world = G.toWorld(screen, state.view);
       const hit = Hit.hitTest(store, world, 6 / state.view.scale);
+      if (hit && hit.type === 'text') {
+        startTextEdit(store.get(hit.id));
+        return;
+      }
+      /* Инструментом рисования правый клик не должен превращать свежую
+         точку или короткий штрих в выделение: рамка с ручками закрывает
+         маленький рисунок и мешает рисовать дальше. */
+      if (state.tool !== 'select' && state.tool !== 'pan') return;
       if (hit && !state.selection.includes(hit.id)) setSelection([hit.id]);
-      if (hit && hit.type === 'text') startTextEdit(store.get(hit.id));
     }
 
     function setTool(tool) {
@@ -1825,7 +1747,10 @@
       /* у «Заливки» нет смысла в режиме «без заливки» — по клику сразу красим */
       if (tool === 'fill' && state.fill === 'none') state.fill = 'solid';
       /* рукой и выделением можно работать вместе: выделение не сбрасываем */
-      if (tool !== 'select' && tool !== 'pan') setSelection([]);
+      if (tool !== 'select' && tool !== 'pan') {
+        setSelection([]);
+        state.hoveredId = null;
+      }
       state.eraser = null;
       canvas.style.cursor = '';
       if (tool === 'ruler' || tool === 'protractor') showInstrument(tool);
