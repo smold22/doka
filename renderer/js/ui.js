@@ -141,6 +141,19 @@
     return TRIANGLE_VARIANTS.find((v) => v.id === id) || TRIANGLE_VARIANTS[0];
   }
 
+  /* Виды линии: сплошная и пунктирная, правый клик по кнопке «Линия» */
+  const LINE_VARIANTS = [
+    { id: 'line', label: 'Линия', stroke: true, icon: 'M3.4 16.6 16.6 3.4' },
+    {
+      id: 'line-dashed', label: 'Пунктирная линия', stroke: true,
+      icon: 'M3.4 16.6 6.2 13.8M8.8 11.2 11.6 8.4M14.2 5.8 16.6 3.4',
+    },
+  ];
+
+  function lineVariant(id) {
+    return LINE_VARIANTS.find((v) => v.id === id) || LINE_VARIANTS[0];
+  }
+
   /* Объёмные фигуры: параллелепипед, пирамиды и призмы с разным числом оснований и сфера.
      Иконки нарисованы в той же изометрии, что и сами фигуры, с видимыми рёбрами сплошной
      линией и скрытыми — пунктиром. */
@@ -189,11 +202,20 @@
 
   /* Обе кнопки с вариантами: kind — имя набора, stateKey — поле состояния */
   const VARIANT_MENUS = {
+    line: { list: LINE_VARIANTS, pick: lineVariant, stateKey: 'lineVariant', key: 'L' },
     rect: { list: SHAPE_VARIANTS, pick: shapeVariant, stateKey: 'shapeVariant', key: 'R' },
     ellipse: { list: ELLIPSE_VARIANTS, pick: ellipseVariant, stateKey: 'ellipseVariant', key: 'O' },
     triangle: { list: TRIANGLE_VARIANTS, pick: triangleVariant, stateKey: 'triangleVariant', key: 'U' },
     solid: { list: SOLID_VARIANTS, pick: solidVariant, stateKey: 'solidVariant', key: 'C' },
   };
+
+  /* Иконки линий контурные, остальные фигуры — заливкой: меню рисует путь
+     так же, как кнопка инструмента, чтобы пунктир был виден. */
+  function variantPath(v) {
+    return v.stroke
+      ? `<path d="${v.icon}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+      : `<path d="${v.icon}"/>`;
+  }
 
   function createUI(app) {
     const { state } = app;
@@ -225,6 +247,7 @@
       protractorLearn: document.getElementById('btnProtractorLearn'),
       shapeMenu: document.getElementById('shapeMenu'),
       variantBtns: {
+        line: document.querySelector('.tool[data-tool="line"]'),
         rect: document.querySelector('.tool[data-tool="rect"]'),
         ellipse: document.querySelector('.tool[data-tool="ellipse"]'),
         triangle: document.querySelector('.tool[data-tool="triangle"]'),
@@ -378,8 +401,7 @@
         b.dataset.menu = kind;
         b.dataset.variant = v.id;
         b.setAttribute('role', 'menuitemradio');
-        b.innerHTML =
-          `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="${v.icon}"/></svg><span></span>`;
+        b.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${variantPath(v)}</svg><span></span>`;
         b.querySelector('span').textContent = v.label;
         el.shapeMenu.appendChild(b);
       }
@@ -431,7 +453,7 @@
         if (!btn) continue;
         TOOL_LABELS[kind] = v.label;
         const svg = btn.querySelector('svg');
-        if (svg) svg.innerHTML = `<path d="${v.icon}"/>`;
+        if (svg) svg.innerHTML = variantPath(v);
         btn.dataset.tip = `${v.label} (${menu.key})${VARIANT_HINT}`;
         btn.setAttribute('aria-label', `${v.label}, варианты — правая кнопка мыши`);
         if (state.tool === kind) el.stTool.textContent = v.label;
@@ -665,6 +687,7 @@ input.value = current;
       buildPalettes, setTool, updateZoom, updateHistory, updateCounts,
       updateCoords, setFileName, startRename, setGridActive, setCellsActive, updateSelectionBar,
       openShapeMenu, closeShapeMenu, syncShapeVariant, VARIANT_MENUS,
+      LINE_VARIANTS, lineVariant,
       ELLIPSE_VARIANTS, ellipseVariant, TRIANGLE_VARIANTS, triangleVariant,
       SOLID_VARIANTS, solidVariant,
       toast, showShortcuts, showAbout, syncSwatches, syncThickness, syncFill, syncTextSize,

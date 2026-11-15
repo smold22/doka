@@ -972,6 +972,8 @@
             /* залитая фигура берёт цвет заливки, а не цвет обводки */
             fillColor: state.fill === 'none' ? null : state.fillColor,
             x1: world.x, y1: world.y, x2: world.x, y2: world.y,
+            /* пунктир — свойство самой линии, иначе прежние доски остаются сплошными */
+            ...(state.tool === 'line' && state.lineVariant === 'line-dashed' ? { dash: true } : {}),
           });
           drag = { type: 'shape', shape, origin: world, moved: false };
           break;

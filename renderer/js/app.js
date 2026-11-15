@@ -106,6 +106,8 @@
     protractor: G.newInstrument(),
     /* режим обучения: транспортир остаётся на доске под пером и маркером */
     protractorLearn: false,
+    /* вид линии: сплошная или пунктирная */
+    lineVariant: prefs.lineVariant || 'line',
     /* какую фигуру рисует кнопка «Прямоугольник»: сам прямоугольник,
        квадрат, параллелограмм или трапеция */
     shapeVariant: prefs.shapeVariant || 'rect',
@@ -862,6 +864,7 @@
       textFmt: state.textFmt,
       showGrid: state.showGrid,
       showCells: state.showCells,
+      lineVariant: state.lineVariant,
       shapeVariant: state.shapeVariant,
       ellipseVariant: state.ellipseVariant,
       triangleVariant: state.triangleVariant,

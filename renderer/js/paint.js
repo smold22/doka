@@ -182,6 +182,7 @@
       ctx.lineCap = 'round';
       ctx.strokeStyle = obj.color;
       ctx.lineWidth = width;
+      if (obj.dash) ctx.setLineDash([Math.max(2, width * 1.8), Math.max(2, width * 1.3)]);
       ctx.beginPath();
       ctx.moveTo(obj.x1, obj.y1);
       ctx.lineTo(sx, sy);

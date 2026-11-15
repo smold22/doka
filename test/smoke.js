@@ -2880,7 +2880,7 @@ t('иконка пера показывает выбранный цвет чер
   });
 
   t('подсказка фигуры зовёт правую кнопку мыши', () => {
-    const tools = ['rect', 'ellipse', 'triangle', 'solid'];
+    const tools = ['line', 'rect', 'ellipse', 'triangle', 'solid'];
     const bad = [];
     for (const tool of tools) {
       const btn = document.querySelector(`.tool[data-tool="${tool}"]`);
@@ -2902,11 +2902,36 @@ t('иконка пера показывает выбранный цвет чер
     return ok ? true : `ромб: ${tip} / прямоугольник: ${back}`;
   });
 
-  t('у линии и стрелки подсказка остаётся короткой', () => {
-    /* вариантов у них нет, поэтому звать правую кнопку незачем */
-    const line = document.querySelector('.tool[data-tool="line"]').dataset.tip || '';
+  t('у стрелки подсказка остаётся короткой', () => {
+    /* вариантов у неё нет, поэтому звать правую кнопку незачем */
     const arrow = document.querySelector('.tool[data-tool="arrow"]').dataset.tip || '';
-    return !/ПКМ/.test(line) && !/ПКМ/.test(arrow) ? true : `line=${line} arrow=${arrow}`;
+    return !/ПКМ/.test(arrow) ? true : `arrow=${arrow}`;
+  });
+
+  t('в меню линии есть сплошная и пунктирная', () => {
+    menuOpen('line');
+    const ids = Array.from(shapeMenu.children).map((b) => b.dataset.variant).join(',');
+    const labels = Array.from(shapeMenu.children).map((b) => b.querySelector('span').textContent).join('|');
+    return !shapeMenu.hidden && ids === 'line,line-dashed' &&
+      labels === 'Линия|Пунктирная линия'
+      ? true : `${ids} / ${labels}`;
+  });
+
+  t('пунктирная линия рисуется пунктиром', () => {
+    menuPick('line', 'line-dashed');
+    const lineBtn = document.querySelector('.tool[data-tool="line"]');
+    itc.setTool('line');
+    store.clear();
+    gesture(toScreen({ x: 120, y: 120 }), toScreen({ x: 320, y: 260 }));
+    const dashed = store.items[0];
+    menuPick('line', 'line');
+    store.clear();
+    gesture(toScreen({ x: 120, y: 120 }), toScreen({ x: 320, y: 260 }));
+    const solid = store.items[0];
+    return dashed && dashed.shape === 'line' && dashed.dash === true &&
+      solid && solid.shape === 'line' && solid.dash === false &&
+      lineBtn.dataset.tip === 'Линия (L) · ПКМ — другие фигуры'
+      ? true : `пунктир=${dashed && dashed.dash}, сплошная=${solid && solid.dash}`;
   });
 
   t('толщина линии и стрелки настраивается справа', () => {
